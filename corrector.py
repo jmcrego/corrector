@@ -183,7 +183,7 @@ if __name__ == "__main__":
     group_optim.add_argument("--beta1", default=0.9, type=float, help="beta1 for AdamW optimizer (0.9)")
     group_optim.add_argument("--beta2", default=0.999, type=float, help="beta2 for AdamW optimizer (0.999)")
     group_optim.add_argument("--wdecay", default=0, type=float, help="weight decay for AdamW optimizer (0)")
-    group_optim.add_argument("--scheduler", default="linear", type=str, help="scheduler type (linear)")
+    group_optim.add_argument("--sched", default="linear", type=str, help="scheduler type (linear)")
     group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps (0)")
     group_inference = parser.add_argument_group("Inference")
     group_inference.add_argument("--tst_src", default=None, type=str, help="test (source) file")
@@ -207,6 +207,7 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
+    tmo = TMO(args, device)
 
     ####################
     ### loading data ###
@@ -217,14 +218,11 @@ if __name__ == "__main__":
     infer_loader, n_infer = dsl(args.tst_src, args.tst_tgt, shuffle=False) if args.tst_src is not None else (None, 0)
     onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=False)
 
-    num_training_steps = len(train_loader)*args.epochs if train_loader is not None else 0
-    tmo = TMO(args, num_training_steps)
-    tmo.load(device)
-    
     ####################
     ### Training loop ##
     ####################
     if train_loader is not None and valid_loader is not None: 
+        tmo.build_optimizer_scheduler(len(train_loader)*args.epochs)
         logging.info("Running learning...")
         tic = time.time()
         for epoch in range(1, args.epochs+1):
