@@ -45,10 +45,11 @@ def train(args, epoch, tmo, train_loader, valid_loader, onmttok):
         if args.clip:
             torch.nn.utils.clip_grad_norm_(tmo.model.parameters(), args.clip)
         tmo.optimizer.step()
-        tmo.model.zero_grad()
+        tmo.scheduler.step()
+        tmo.optimizer.zero_grad()
 
         if n_steps % args.report_n == 0:
-            logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss/args.report_n))
+            logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss/args.report_n,tmo.optimizer.param_groups[0]["lr"]))
             sum_loss = 0.
             
         if n_steps % args.valid_n == 0:
@@ -181,8 +182,9 @@ if __name__ == "__main__":
     group_optim.add_argument("--eps", default=1e-8, type=float, help="epsilon for AdamW optimizer (1e-8)")
     group_optim.add_argument("--beta1", default=0.9, type=float, help="beta1 for AdamW optimizer (0.9)")
     group_optim.add_argument("--beta2", default=0.999, type=float, help="beta2 for AdamW optimizer (0.999)")
-    group_optim.add_argument("--wdecay", default=0.01, type=float, help="weight decay for AdamW optimizer (0.01)")
-    group_optim.add_argument("--warmup", default=0.1, type=float, help="linear learning rate warmup (not implemented)")
+    group_optim.add_argument("--wdecay", default=0, type=float, help="weight decay for AdamW optimizer (0)")
+    group_optim.add_argument("--scheduler", default="linear", type=str, help="scheduler type (linear)")
+    group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps (0)")
     group_inference = parser.add_argument_group("Inference")
     group_inference.add_argument("--tst_src", default=None, type=str, help="test (source) file")
     group_inference.add_argument("--tst_tgt", default=None, type=str, help="test (target) file used for error measure")
@@ -205,17 +207,19 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    tmo = TMO(args)
-    tmo.load(device, is_learning=args.trn_src is not None)
 
     ####################
     ### loading data ###
     ####################
     dsl = DataSetLoader(args, tmo.tokenizer)
     train_loader, n_train = dsl(args.trn_src, args.trn_tgt, shuffle=True) if args.trn_src is not None and args.trn_tgt is not None else (None, 0)
-    valid_loader, n_valid = dsl(args.val_src, args.val_tgt, shuffle=True) if args.val_src is not None and args.val_tgt is not None else (None, 0)
+    valid_loader, n_valid = dsl(args.val_src, args.val_tgt, shuffle=False) if args.val_src is not None and args.val_tgt is not None else (None, 0)
     infer_loader, n_infer = dsl(args.tst_src, args.tst_tgt, shuffle=False) if args.tst_src is not None else (None, 0)
     onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=False)
+
+    num_training_steps = len(train_loader)*args.epochs if train_loader is not None else 0
+    tmo = TMO(args, num_training_steps)
+    tmo.load(device)
     
     ####################
     ### Training loop ##
