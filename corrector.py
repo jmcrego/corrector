@@ -144,6 +144,9 @@ def inference(args, tmo, loader, onmttok):
                     out.append(pred)
                 if args.diffs:
                     out.append(formatWithED(input_txt[i//args.n_best], generated_txt[i]))
+                    if 'target_ids' in batch:
+                        out.append(formatWithED(generated_txt[i], target_txt[i]))
+                        
                 print('\t'.join(out))
                 
         if len(target_txts):
@@ -193,7 +196,7 @@ if __name__ == "__main__":
     group_inference.add_argument("--len_pty", default=1.0, type=float, help="length penalty for inference (1.0)")
     group_inference.add_argument("--n_best", default=1, type=int, help="number of output sequences (1)")
     group_inference.add_argument("--early_stopping", action='store_true', help="early stopping for inference")
-    group_inference.add_argument("--diffs", action='store_true', help="output hyps with edit distance diffs if n_best is 1")
+    group_inference.add_argument("--diffs", action='store_true', help="output src/hyp and hyp/ref diffs using edit distance")
     args = parser.parse_args()
     if args.trn_src is not None:
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None), filename=args.dir+'.log')

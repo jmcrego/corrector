@@ -41,11 +41,11 @@ class TMO():
             self.model = MT5ForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'facebook/mbart-large-50': #https://huggingface.co/docs/transformers/model_doc/mbart
             logging.info('loading local {} tokenizer/model'.format(read_from))
-            self.tokenizer = MBart50TokenizerFast.from_pretrained(read_from)
+            self.tokenizer = MBart50TokenizerFast.from_pretrained(read_from, src_lang="fr", tgt_lang="fr")
             self.model = MBartForConditionalGeneration.from_pretrained(read_from)    
         elif self.args.path == 'facebook/m2m100_418M': #https://huggingface.co/docs/transformers/model_doc/m2m_100
             logging.info('loading local {} tokenizer/model'.format(read_from))
-            self.tokenizer = M2M100Tokenizer.from_pretrained(read_from, src_lang="fr", tgt_lang="fr")
+            self.tokenizer = M2M100Tokenizer.from_pretrained(read_from, src_lang="fr")
             self.model = M2M100ForConditionalGeneration.from_pretrained(read_from)                
         else:
             logging.error('invalid path option {}'.format(self.args.path))
@@ -78,6 +78,7 @@ class TMO():
 
     
     def generate(self, input_ids, attention_mask, is_inference=False):
+        #m2m100_418M use: forced_bos_token_id=tokenizer.get_lang_id("en")
         return self.model.generate(input_ids=input_ids,
                                    attention_mask=attention_mask,
                                    do_sample=False,
