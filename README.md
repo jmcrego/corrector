@@ -1,5 +1,5 @@
 # corrector
-Natural language text correction by fine-tuning large text2text-generation language models (from huggingface)
+Natural language text correction by fine-tuning large text2text-generation language models (huggingface) using synthetic noisy data.
 
 The project is first oriented to correct French texts.
 
