@@ -45,7 +45,7 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
         if args.clip:
             torch.nn.utils.clip_grad_norm_(tmos.model.parameters(), args.clip)
         tmos.optimizer.step()
-        if args.sched is nt None:
+        if args.sched is not None:
             tmos.scheduler.step()
         tmos.optimizer.zero_grad()
 
@@ -59,7 +59,7 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
             logging.info("valid wer: {:.2f} (#hyp={} #ref={}) step:{}".format(wer_score, nhyp, nref, n_steps))
             if min_valid_wer is None or wer_score < min_valid_wer:
                 min_valid_wer = wer_score
-                logging.info("NEW min valid wer: {:.2f} Saving validation/model Step:{}...".format(min_valid_wer,n_steps))
+                logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
                 tmos.save()
                 with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
                     fdo.write('\n'.join(generated_txts) + '\n')
@@ -68,7 +68,7 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
     logging.info("valid wer: {:.2f} (#hyp={} #ref={}) Step:{}".format(wer_score, nhyp, nref, n_steps))
     if min_valid_wer is None or wer_score < min_valid_wer:
         min_valid_wer = wer_score
-        logging.info("NEW min valid wer: {:.2f} Saving validation/model Step:{}...".format(min_valid_wer,n_steps))
+        logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
         tmos.save()
         with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
             fdo.write('\n'.join(generated_txts) + '\n')
