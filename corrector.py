@@ -14,7 +14,7 @@ from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampl
 from torch.nn.utils.rnn import pad_sequence
 from wer import wer
 from DataSetLoader import DataSetLoader
-from TMO import TMO
+from TMOS import TMOS
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -25,50 +25,51 @@ def set_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def train(args, epoch, tmo, train_loader, valid_loader, onmttok):
+def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
     N = len(train_loader)
     min_valid_wer = None
     sum_loss = 0.
     n_steps = 0
     for batch in train_loader:
-        tmo.model.train()
-        input_ids = batch["source_ids"].to(tmo.device, dtype=torch.long)
-        attention_mask = batch["source_mask"].to(tmo.device, dtype=torch.long) 
-        labels = batch["target_ids"].to(tmo.device, dtype=torch.long)
-        labels[labels == tmo.tokenizer.pad_token_id] = -100
+        tmos.model.train()
+        input_ids = batch["source_ids"].to(tmos.device, dtype=torch.long)
+        attention_mask = batch["source_mask"].to(tmos.device, dtype=torch.long) 
+        labels = batch["target_ids"].to(tmos.device, dtype=torch.long)
+        labels[labels == tmos.tokenizer.pad_token_id] = -100
         ### forward
-        outputs = tmo(input_ids, attention_mask, labels) 
+        outputs = tmos(input_ids, attention_mask, labels) 
         loss = outputs.loss #[0]
         n_steps += 1
         loss.backward()
         sum_loss += loss
         if args.clip:
-            torch.nn.utils.clip_grad_norm_(tmo.model.parameters(), args.clip)
-        tmo.optimizer.step()
-        tmo.scheduler.step()
-        tmo.optimizer.zero_grad()
+            torch.nn.utils.clip_grad_norm_(tmos.model.parameters(), args.clip)
+        tmos.optimizer.step()
+        if args.sched is nt None:
+            tmos.scheduler.step()
+        tmos.optimizer.zero_grad()
 
         if n_steps % args.report_n == 0:
-            logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss/args.report_n,tmo.optimizer.param_groups[0]["lr"]))
+            logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss/args.report_n,tmos.optimizer.param_groups[0]["lr"]))
             sum_loss = 0.
             
         if n_steps % args.valid_n == 0:
             logging.info("Running validation...")
-            wer_score, nhyp, nref, generated_txts = validation(args, tmo, valid_loader, onmttok)
+            wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
             logging.info("valid wer: {:.2f} (#hyp={} #ref={}) step:{}".format(wer_score, nhyp, nref, n_steps))
             if min_valid_wer is None or wer_score < min_valid_wer:
                 min_valid_wer = wer_score
                 logging.info("NEW min valid wer: {:.2f} Saving validation/model Step:{}...".format(min_valid_wer,n_steps))
-                tmo.save()
+                tmos.save()
                 with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
                     fdo.write('\n'.join(generated_txts) + '\n')
                     
-    wer_score, nhyp, nref, generated_txts = validation(args, tmo, valid_loader, onmttok)
+    wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
     logging.info("valid wer: {:.2f} (#hyp={} #ref={}) Step:{}".format(wer_score, nhyp, nref, n_steps))
     if min_valid_wer is None or wer_score < min_valid_wer:
         min_valid_wer = wer_score
         logging.info("NEW min valid wer: {:.2f} Saving validation/model Step:{}...".format(min_valid_wer,n_steps))
-        tmo.save()
+        tmos.save()
         with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
             fdo.write('\n'.join(generated_txts) + '\n')
             
@@ -96,9 +97,9 @@ class FormatWithEditDist():
                 out.append(self.BEG + ' '.join(src[src_beg:src_end]) + self.BAR + ' '.join(tgt[tgt_beg:tgt_end]) + self.END)
         return ' '.join(out)
 
-def validation(args, tmo, loader, onmttok):
+def validation(args, tmos, loader, onmttok):
     wer_scorer = wer(onmttok)
-    tmo.model.eval()
+    tmos.model.eval()
     with torch.no_grad():
         n_batchs = 0
         target_txts = []
@@ -106,35 +107,35 @@ def validation(args, tmo, loader, onmttok):
         #sum_loss = 0.
         for batch in loader:
             n_batchs += 1
-            input_ids = batch['source_ids'].to(tmo.device, dtype = torch.long)
-            attention_mask = batch['source_mask'].to(tmo.device, dtype = torch.long)
+            input_ids = batch['source_ids'].to(tmos.device, dtype = torch.long)
+            attention_mask = batch['source_mask'].to(tmos.device, dtype = torch.long)
             target_ids = batch['target_ids']
-            generated_ids = tmo.generate(input_ids, attention_mask, is_inference=False)
-            target_txt = [tmo.decode(ids) for ids in target_ids]
-            generated_txt = [tmo.decode(ids) for ids in generated_ids]
+            generated_ids = tmos.generate(input_ids, attention_mask, is_inference=False)
+            target_txt = [tmos.decode(ids) for ids in target_ids]
+            generated_txt = [tmos.decode(ids) for ids in generated_ids]
             target_txts.extend(target_txt)
             generated_txts.extend(generated_txt)
         wer_score, nhyp, nref = wer_scorer(generated_txts,target_txts)
     return wer_score, nhyp, nref, generated_txts
     
-def inference(args, tmo, loader, onmttok):
+def inference(args, tmos, loader, onmttok):
     wer_scorer = wer(onmttok)
     formatWithED = FormatWithEditDist(onmttok)
-    tmo.model.eval()
+    tmos.model.eval()
     with torch.no_grad():
         n_batchs = 0
         target_txts = []
         generated_txts = []
         for batch in loader:
             n_batchs += 1
-            input_ids = batch['source_ids'].to(tmo.device, dtype = torch.long)
-            attention_mask = batch['source_mask'].to(tmo.device, dtype = torch.long)
-            generated_ids = tmo.generate(input_ids, attention_mask, is_inference=True)
-            input_txt = [tmo.decode(ids)[len(args.prefix):] for ids in input_ids] ### discard initial prefix 'GEC: '
-            generated_txt = [tmo.decode(ids) for ids in generated_ids] #[bsxnb, tl]           
+            input_ids = batch['source_ids'].to(tmos.device, dtype = torch.long)
+            attention_mask = batch['source_mask'].to(tmos.device, dtype = torch.long)
+            generated_ids = tmos.generate(input_ids, attention_mask, is_inference=True)
+            input_txt = [tmos.decode(ids)[len(args.prefix):] for ids in input_ids] ### discard initial prefix 'GEC: '
+            generated_txt = [tmos.decode(ids) for ids in generated_ids] #[bsxnb, tl]           
             if 'target_ids' in batch:
                 target_ids = batch['target_ids']
-                target_txt = [tmo.decode(ids) for ids in target_ids]
+                target_txt = [tmos.decode(ids) for ids in target_ids]
                 target_txts.extend(target_txt)
 
             for i in range(0, len(generated_txt), args.n_best): #if n_best is 5: generated_txt[0, 1, 2, 3, 4] are 5-bests corrections of the same input sentence
@@ -186,7 +187,7 @@ if __name__ == "__main__":
     group_optim.add_argument("--beta1", default=0.9, type=float, help="beta1 for AdamW optimizer (0.9)")
     group_optim.add_argument("--beta2", default=0.999, type=float, help="beta2 for AdamW optimizer (0.999)")
     group_optim.add_argument("--wdecay", default=0, type=float, help="weight decay for AdamW optimizer (0)")
-    group_optim.add_argument("--sched", default="linear", type=str, help="scheduler type (linear)")
+    group_optim.add_argument("--sched", default=None, type=str, help="scheduler type (None)")
     group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps (0)")
     group_inference = parser.add_argument_group("Inference")
     group_inference.add_argument("--tst_src", default=None, type=str, help="test (source) file")
@@ -210,12 +211,12 @@ if __name__ == "__main__":
 
     set_seed(args.seed)
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
-    tmo = TMO(args, device)
+    tmos = TMOS(args, device)
 
     ####################
     ### loading data ###
     ####################
-    dsl = DataSetLoader(args, tmo.tokenizer)
+    dsl = DataSetLoader(args, tmos.tokenizer)
     train_loader, n_train = dsl(args.trn_src, args.trn_tgt, shuffle=True) if args.trn_src is not None and args.trn_tgt is not None else (None, 0)
     valid_loader, n_valid = dsl(args.val_src, args.val_tgt, shuffle=False) if args.val_src is not None and args.val_tgt is not None else (None, 0)
     infer_loader, n_infer = dsl(args.tst_src, args.tst_tgt, shuffle=False) if args.tst_src is not None else (None, 0)
@@ -225,11 +226,11 @@ if __name__ == "__main__":
     ### Training loop ##
     ####################
     if train_loader is not None and valid_loader is not None: 
-        tmo.build_optimizer_scheduler(len(train_loader)*args.epochs)
+        tmos.build_optimizer_scheduler(len(train_loader)*args.epochs)
         logging.info("Running learning...")
         tic = time.time()
         for epoch in range(1, args.epochs+1):
-            train(args, epoch, tmo, train_loader, valid_loader, onmttok)
+            train(args, epoch, tmos, train_loader, valid_loader, onmttok)
         toc = time.time()
         logging.info("learning took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_train/(toc-tic), 100.0*len(train_loader)/(toc-tic)))
 
@@ -239,7 +240,7 @@ if __name__ == "__main__":
     if infer_loader is not None:
         logging.info("Running inference...")
         tic = time.time()
-        inference(args, tmo, infer_loader, onmttok)
+        inference(args, tmos, infer_loader, onmttok)
         toc = time.time()
         logging.info("inference took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_infer/(toc-tic), 100.0*len(infer_loader)/(toc-tic)))
         
