@@ -177,7 +177,7 @@ if __name__ == "__main__":
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
-    group_training.add_argument("--valid_n", default=1000, type=int, help="validate every this number of steps (1000)")
+    group_training.add_argument("--valid_n", default=5000, type=int, help="validate every this number of steps (5000)")
     group_training.add_argument("--save_n", default=5, type=int, help="save best n checkpoints according to validation score (not implemented)")
     group_training.add_argument('--accum_n', type=int, default=1, help="accumulate this many batchs before model update (not implemented)")
     group_training.add_argument("--clip", default=0.0, type=float, help="clip to max gradient norm (0.0)")
