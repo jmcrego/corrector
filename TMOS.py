@@ -4,12 +4,11 @@ import torch
 import logging
 from transformers import AdamW, get_scheduler
 from transformers import T5ForConditionalGeneration, T5Tokenizer
-from transformers import MT5ForConditionalGeneration#, T5Tokenizer
-from transformers import MBartForConditionalGeneration, MBartTokenizer
+from transformers import MT5ForConditionalGeneration, T5Tokenizer
+from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
 class TMOS():
-
     
     def __init__(self, args, device):
         self.args = args
@@ -23,7 +22,7 @@ class TMOS():
         else: ### begin training
             if self.args.path is None:
                 logging.error('impossible to guess path from dir {} use --path'.format(self.args.dir))
-                sys.exit()            
+                sys.exit()
             save_local = True
             read_from = self.args.path
             if not os.path.exists(self.args.dir): ### resume training or inference
@@ -41,8 +40,8 @@ class TMOS():
             self.model = MT5ForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'facebook/mbart-large-50': #https://huggingface.co/docs/transformers/model_doc/mbart
             logging.info('loading local {} tokenizer/model'.format(read_from))
-            self.tokenizer = MBart50TokenizerFast.from_pretrained(read_from, src_lang="fr", tgt_lang="fr")
-            self.model = MBartForConditionalGeneration.from_pretrained(read_from)    
+            self.tokenizer = MBart50TokenizerFast.from_pretrained(read_from, src_lang="fr_XX", tgt_lang="fr_XX")
+            self.model = MBartForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'facebook/m2m100_418M': #https://huggingface.co/docs/transformers/model_doc/m2m_100
             logging.info('loading local {} tokenizer/model'.format(read_from))
             self.tokenizer = M2M100Tokenizer.from_pretrained(read_from, src_lang="fr")
