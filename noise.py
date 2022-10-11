@@ -125,17 +125,16 @@ def noise_sentence(toks, args, stats, misspell, grammar, homophone, case, hyphen
 
 if __name__ == '__main__': 
 
-    logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None)) #INFO = 20
     parser = argparse.ArgumentParser()
-    parser.add_argument('-o', type=str, default=None, help='output prefix file (o.clean and o.noisy will be built)')
+    parser.add_argument('-o', type=str, default=None, help='output file (for noisy output)')
     parser.add_argument('--grammar', type=str, default=None, help='grammar error file')
     parser.add_argument('--homophone', type=str, default=None, help='homophone error file')
     parser.add_argument('--min_r', type=float, default=0., help='Minimum ratio of noises/words per sentence (0.)')
-    parser.add_argument('--max_r', type=float, default=0.25, help='Maximum ratio of noises/words per sentence (0.25)')
+    parser.add_argument('--max_r', type=float, default=0.5, help='Maximum ratio of noises/words per sentence (0.25)')
     parser.add_argument('--seed', type=int, default=0,    help='Seed for randomness (0)')    
     group_weights = parser.add_argument_group("Noise weights")
-    group_weights.add_argument('--w_grammar', type=int, default=5, help='Weight for GRAMMAR noise (10)')
-    group_weights.add_argument('--w_homophone', type=int, default=3, help='Weight for HOMOPHONE noise (5)')
+    group_weights.add_argument('--w_grammar', type=int, default=50, help='Weight for GRAMMAR noise (10)')
+    group_weights.add_argument('--w_homophone', type=int, default=30, help='Weight for HOMOPHONE noise (5)')
     group_weights.add_argument('--w_hyphen', type=int, default=1, help='Weight for HYPHEN noise (100)')
     group_weights.add_argument('--w_misspell', type=int, default=1, help='Weight for MISSPELL noise (1)')
     group_weights.add_argument('--w_case', type=int, default=1, help='Weight for CASE noise (1)')
@@ -144,6 +143,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.max_r == 0:
         args.max_r = 1.
+    if args.o is not None:
+        logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None), filename=args.o+'.log')
+    else:
+        logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None))
     logging.info("Options = {}".format(args.__dict__))
     onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=True, joiner=ONMTTOK_JOINER)
     misspell = Misspell()
@@ -155,8 +158,7 @@ if __name__ == '__main__':
     duplicate = Duplicate()
     
     if args.o is not None:
-        fdo_clean = open(args.o + '.clean', 'w')
-        fdo_noisy = open(args.o + '.noisy', 'w')
+        fdo_noisy = open(args.o, 'w')
     
     tic = time.time()
     n_tokens = 0
@@ -171,10 +173,9 @@ if __name__ == '__main__':
         tok_noisy, n_errors = noise_sentence(tok_clean, args, stats, misspell, grammar, homophone, case, hyphen, space, duplicate)
         txt_noisy = onmttok.detokenize(tok_noisy)
         if args.o is not None:
-            fdo_clean.write(txt_clean + '\n')
             fdo_noisy.write(txt_noisy + '\n')
         else:
-            print("{}\t{}".format(txt_noisy, txt_clean))
+            print("{}".format(txt_noisy))
         #logging.info("nsentence:{} {} errors over {} tokens, {:.2f}".format(n_sentences, n_errors, len(tok_clean), 100.0*n_errors/len(tok_clean)))
         n_tokens += len(tok_noisy)
         n_tokens_noised += n_errors
@@ -183,7 +184,7 @@ if __name__ == '__main__':
             logging.info('[{} sentences] noises {}'.format(n_sentences,stats.items()))
     toc = time.time()
     if args.o is not None:
-        fdo_clean.close()
+        #fdo_clean.close()
         fdo_noisy.close()
         
     logging.info('Done {:.3f} seconds {:.1f} sentences/sec {:.1f} tokens/sec'.format(toc-tic,n_sentences/(toc-tic), n_tokens/(toc-tic)))

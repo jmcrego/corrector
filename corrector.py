@@ -15,6 +15,7 @@ from torch.nn.utils.rnn import pad_sequence
 from wer import wer
 from DataSetLoader import DataSetLoader
 from TMOS import TMOS
+from FormatED import FormatWithEditDist
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -75,27 +76,6 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
             
 
 ##############################################################################################################
-
-class FormatWithEditDist():
-
-    def __init__(self, onmttok, BAR='║', BEG='《', END='》'):
-        self.onnmttok = onmttok
-        self.BAR = BAR
-        self.BEG = "" #BEG
-        self.END = "" #END
-
-    def __call__(self, src_txt, tgt_txt):
-        src = onmttok(src_txt)
-        tgt = onmttok(tgt_txt)
-        sm = edit_distance.SequenceMatcher(a=src, b=tgt)
-        out = []
-        for opcode in sm.get_opcodes():
-            code, src_beg, src_end, tgt_beg, tgt_end = opcode
-            if code == 'equal':
-                out.append(' '.join(src[src_beg:src_end]))
-            else:
-                out.append(self.BEG + ' '.join(src[src_beg:src_end]) + self.BAR + ' '.join(tgt[tgt_beg:tgt_end]) + self.END)
-        return ' '.join(out)
 
 def validation(args, tmos, loader, onmttok):
     wer_scorer = wer(onmttok)
