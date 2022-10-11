@@ -6,7 +6,7 @@ import logging
 import argparse
 import pyonmttok
 from collections import defaultdict
-from Noises import Misspell, Case, Hyphen, Space, Duplicate, Replacements, ONMTTOK_JOINER
+from Noises import Misspell, Case, Hyphen, Space, Duplicate, Replacement, ONMTTOK_JOINER
 
 def del_joiners(txt):
     txt = txt[:]
@@ -70,9 +70,9 @@ def noise_token(txt_clean, prev_tok, post_tok, args, stats, misspell, grammar, h
                 return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'homophone'
 
         elif next_error == 'misspell':
-            txt_noised = misspell(str(txt))
+            txt_noised, type_misspell = misspell(str(txt))
             if txt_noised is not None and txt_noised != txt:
-                return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'misspell'
+                return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'misspell'+type_misspell
 
         elif next_error == 'case':
             txt_noised = case(str(txt))
@@ -85,14 +85,15 @@ def noise_token(txt_clean, prev_tok, post_tok, args, stats, misspell, grammar, h
                 return txt_noised, 'hyphen'
 
         elif next_error == 'space':
-            txt_noised = space(str(txt_clean), prev_tok, post_tok)
+            txt_noised, type_space = space(str(txt_clean), prev_tok, post_tok)
             if txt_noised is not None:
-                return txt_noised, 'space'
+                return txt_noised, 'space'+type_space
 
         elif next_error == 'duplicate':
             txt_noised = duplicate(str(txt_clean), prev_tok, post_tok)
             if txt_noised is not None:
                 return txt_noised, 'duplicate'
+
             
     return txt_clean, None
     
@@ -110,7 +111,7 @@ def noise_sentence(toks, args, stats, misspell, grammar, homophone, case, hyphen
         post_tok = toks[idx+1] if idx < len(toks)-1 else None
         tok, error = noise_token(toks[idx], prev_tok, post_tok, args, stats, misspell, grammar, homophone, case, hyphen, space, duplicate)
         if error is not None:
-            if error == 'hyphen' or error == 'space':
+            if error.startswith('hyphen') or error.startswith('space'):
                 logging.info('[{}] {} {} {} ---> {} {} {}'.format(error, prev_tok, toks[idx], post_tok, prev_tok, tok, post_tok))
             else:
                 logging.info('[{}] {} ---> {}'.format(error, toks[idx], tok))
@@ -130,12 +131,12 @@ if __name__ == '__main__':
     parser.add_argument('--grammar', type=str, default=None, help='grammar error file')
     parser.add_argument('--homophone', type=str, default=None, help='homophone error file')
     parser.add_argument('--min_r', type=float, default=0., help='Minimum ratio of noises/words per sentence (0.)')
-    parser.add_argument('--max_r', type=float, default=0.5, help='Maximum ratio of noises/words per sentence (0.25)')
+    parser.add_argument('--max_r', type=float, default=0.4, help='Maximum ratio of noises/words per sentence (0.25)')
     parser.add_argument('--seed', type=int, default=0,    help='Seed for randomness (0)')    
     group_weights = parser.add_argument_group("Noise weights")
-    group_weights.add_argument('--w_grammar', type=int, default=50, help='Weight for GRAMMAR noise (10)')
-    group_weights.add_argument('--w_homophone', type=int, default=30, help='Weight for HOMOPHONE noise (5)')
-    group_weights.add_argument('--w_hyphen', type=int, default=1, help='Weight for HYPHEN noise (100)')
+    group_weights.add_argument('--w_grammar', type=int, default=100, help='Weight for GRAMMAR noise (100)')
+    group_weights.add_argument('--w_homophone', type=int, default=5, help='Weight for HOMOPHONE noise (5)')
+    group_weights.add_argument('--w_hyphen', type=int, default=100, help='Weight for HYPHEN noise (100)')
     group_weights.add_argument('--w_misspell', type=int, default=1, help='Weight for MISSPELL noise (1)')
     group_weights.add_argument('--w_case', type=int, default=1, help='Weight for CASE noise (1)')
     group_weights.add_argument('--w_space', type=int, default=1, help='Weight for SPACE noise (1)')
@@ -149,9 +150,9 @@ if __name__ == '__main__':
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None))
     logging.info("Options = {}".format(args.__dict__))
     onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=True, joiner=ONMTTOK_JOINER)
-    misspell = Misspell()
-    grammar = Replacements(args.grammar) if args.grammar is not None else None
-    homophone = Replacements(args.homophone) if args.homophone is not None else None
+    misspell = Misspell(wdelete=1,wrepeat=1,wexchange=1,wswap=1,wdiacritics=10,wconsd=25,wphone=50)
+    grammar = Replacement(args.grammar) if args.grammar is not None else None
+    homophone = Replacement(args.homophone) if args.homophone is not None else None
     case = Case()
     hyphen = Hyphen()
     space = Space()

@@ -41,75 +41,98 @@ def change_keyboard(letter):
     return near_letters[0]    
 
 class Misspell():
-    def __init__(self,wdelete=1,wrepeat=1,wreplace=1,wswap=1,wdiacritics=10,wdcons=15):
+    def __init__(self,wdelete=1,wrepeat=1,wexchange=1,wswap=1,wdiacritics=10,wconsd=15,wphone=20):
         self.wdelete = wdelete
         self.wrepeat = wrepeat
-        self.wreplace = wreplace
+        self.wexchange = wexchange
         self.wswap = wswap
         self.wdiacritics = wdiacritics
-        self.wdcons = wdcons
+        self.wconsd = wconsd
+        self.wphone = wphone
         logging.info('Built Misspell noiser')
         
     def __call__(self, word):
         words = []
+        types = []
         weights = []
-        
-        ### delete char i
-        if len(word) > 1:
-            for i in range(len(word)):
+
+        for i in range(len(word)):
+            
+            ### delete char i
+            if len(word) > 1:
                 weights.append(self.wdelete)
+                types.append(':delete')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:]
-                
-        ### repeat char i
-        for i in range(len(word)):
+
+            ### repeat char i
             weights.append(self.wrepeat)
+            types.append(':repeat')
             words.append(word)
-            words[-1] = words[-1][:i] + words [-1][i] + words[-1][i:]
-            
-        ### swap chars i <=> i+1
-        if len(word) > 1:
-            for i in range(len(word)-1):
+            words[-1] = words[-1][:i+1] + words[-1][i:]
+
+            ### swap chars i <=> i+1
+            if i < len(word)-1:
                 c1 = word[i]
                 c2 = word[i+1]
                 weights.append(self.wswap)
+                types.append(':swap')
                 words.append(word)
                 words[-1] = words[-1][:i] + c2 + c1 + words[-1][i+2:]
 
-        ### replace char i by close to it
-        for i in range(len(word)):
+            ### exchange char i by close to it
             near_letter = change_keyboard(word[i])
             if near_letter is not None:
-                weights.append(self.wreplace)
+                weights.append(self.wexchange)
+                types.append(':exchange')
                 words.append(word)
                 words[-1] = words[-1][:i] + near_letter + words[-1][i+1:]
 
-        ### replace char i if vowel by the same with diacritics
-        for i in range(len(word)):
+            ### replace char i if vowel by the same with diacritics
             new_letter = change_accent(word[i])
             if new_letter is not None:
                 weights.append(self.wdiacritics)
+                types.append(':diacr')
                 words.append(word)
                 words[-1] = words[-1][:i] + new_letter + words[-1][i+1:]
 
-        ### delete/add char i if doubled consonant
-        if len(word) >= 4:
-            for i in range(1,len(word)-2): #delete a doubled consonne
-                if word[i] == word[i+1] and word[i] in CONSONNES_DOUBLES:
-                    weights.append(self.wdcons)
-                    words.append(word)
-                    words[-1] = words[-1][:i] + words[-1][i+1:] #char i is not added
+            ### delete/add char i if doubled consonant
+            if i>0 and i<len(word)-2 and word[i] == word[i+1] and word[i] in CONSONNES_DOUBLES:
+                weights.append(self.wconsd)
+                types.append(':consd:del')
+                words.append(word)
+                words[-1] = words[-1][:i] + words[-1][i+1:] #char i is not added
 
-            for i in range(1,len(word)-2): #add a doubled consonne
-                if word[i] != word[i+1] and word[i] != word[i-1] and word[i] in CONSONNES_DOUBLES:
-                    weights.append(self.wdcons)
-                    words.append(word)
-                    words[-1] = words[-1][:i+1] + words[-1][i:] #char i is added twice
+            if i>0 and i<len(word)-1 and word[i] != word[i+1] and word[i] != word[i-1] and word[i] in CONSONNES_DOUBLES:
+                weights.append(self.wconsd)
+                types.append(':consd:add')
+                words.append(word)
+                words[-1] = words[-1][:i+1] + words[-1][i:] #char i is added twice
+
+            ### 'ph' -> 'f'
+            if i+1<len(word) and word[i] == 'p' and word[i+1] == 'h':
+                weights.append(self.wphone)
+                types.append(':phone:ph2f')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'f' + words[-1][i+2:]
+                
+            ### 'h' -> 
+            if word[i] == 'h' and not (i>0 and word[i-1] in 'CcPp'):
+                weights.append(self.wphone)
+                types.append(':phone:h2-')
+                words.append(word)
+                words[-1] = words[-1][:i] + words[-1][i+1:]
 
         if len(words) == 0:
-            return None
+            return None, None
+
+        #logging.info(word)
+        #for i in range(len(words)):
+        #    logging.info('\t{}\t{}\t{}'.format(words[i],weights[i],types[i]))
         
-        return random.choices(words,weights)[0]
+        #return random.choices(words,weights)[0]
+        i = random.choices([i for i in range(len(words))],weights)[0]
+        return words[i], types[i]
 
     def is_spell(self, wrd1, wrd2):
         if abs(len(wrd1)-len(wrd2)) > 1:
@@ -119,6 +142,7 @@ class Misspell():
         if len(swrd1-swrd2) <= 1 and len(swrd2-swrd1) <= 1:
             return True
         return False
+
     
 class Case():
     def __init__(self):
@@ -167,25 +191,25 @@ class Space():
     def __call__(self, txt_clean, prev_tok, post_tok): #txt_clean may contain joiners
 
         if not PATTERN_WORD.match(txt_clean):
-            return None
+            return None, None
         
         if random.random() < 0.5: ### split
             minlen = 3
             if len(txt_clean) < 2*minlen: #minimum length of resulting spltted tokens
-                return None
+                return None, None
             k = random.randint(minlen,len(txt_clean)-minlen)
             prev = txt_clean[:k]
             post = txt_clean[k:]
-            return prev + " " + post
+            return prev + " " + post, ':add'
 
         else: ### merge
             ### merge with next
             if post_tok is not None and not post_tok.startswith(ONMTTOK_JOINER):
-                return txt_clean + ONMTTOK_JOINER
+                return txt_clean + ONMTTOK_JOINER, ':del'
             ### merge with prev
             if prev_tok is not None and not prev_tok.endswith(ONMTTOK_JOINER):
-                return ONMTTOK_JOINER + txt_clean        
-        return None
+                return ONMTTOK_JOINER + txt_clean, ':del'
+        return None, None
 
 class Duplicate():
     def __init__(self):
@@ -200,7 +224,7 @@ class Duplicate():
             return None
         return txt_clean + ' ' + txt_clean
     
-class Replacements():
+class Replacement():
     def __init__(self,f,min_error=2):
         self.replacements = defaultdict(list)
         self.min_error = min_error ### min error length
