@@ -1,3 +1,4 @@
+import sys
 import torch
 import logging
 import torch.nn.functional as F
@@ -32,19 +33,24 @@ class CustomDataset(Dataset):
         self.tokenizer = tokenizer
 
         self.source = None
+        self.target = None
+
+        if fsource is None:
+            self.source = []
+            for l in sys.stdin:
+                self.source.append(args.prefix+l.rstrip())
+                break
+        
         if fsource is not None:
             self.source = []
             for fsrc in fsource.split(','):
                 self.source.extend(file_to_list(fsrc, prefix=args.prefix))
 
-        self.target = None
         if ftarget is not None:
             self.target = []
             for ftgt in ftarget.split(','):
                 self.target.extend(file_to_list(ftgt)) #no prefix for target strings
             
-        #self.source = file_to_list(fsource, prefix=args.prefix)
-        #self.target = file_to_list(ftarget) #return None if no ftarget is None
         assert self.target is None or len(self.source) == len(self.target)
 
     def __len__(self):

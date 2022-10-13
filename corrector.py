@@ -183,6 +183,7 @@ if __name__ == "__main__":
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None), filename=args.dir+'.log')
     else:
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None))
+        
     if len(args.prefix) and not args.prefix.endswith(' '):
         args.prefix += ' '
     if args.beam_sz < args.n_best:
@@ -213,7 +214,9 @@ if __name__ == "__main__":
             train(args, epoch, tmos, train_loader, valid_loader, onmttok)
         toc = time.time()
         logging.info("learning took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_train/(toc-tic), 100.0*len(train_loader)/(toc-tic)))
-
+        logging.info("[Done]")
+        sys.exit()
+        
     ####################
     ### inference ######
     ####################
@@ -223,5 +226,12 @@ if __name__ == "__main__":
         inference(args, tmos, infer_loader, onmttok)
         toc = time.time()
         logging.info("inference took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_infer/(toc-tic), 100.0*len(infer_loader)/(toc-tic)))
+        logging.info("[Done]")
+        sys.exit()
+
+
+    while True:
+        logging.info('j\'attends ton entrée:')
+        input_sentence_loader, _ = dsl(None, None, shuffle=False)
+        inference(args, tmos, input_sentence_loader, onmttok)
         
-    logging.info("[Done]")
