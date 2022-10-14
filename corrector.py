@@ -7,15 +7,11 @@ import logging
 import argparse
 import pyonmttok
 import numpy as np
-import pandas as pd
 import edit_distance
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader, RandomSampler, SequentialSampler
-from torch.nn.utils.rnn import pad_sequence
 from wer import wer
-from DataSetLoader import DataSetLoader
 from TMOS import TMOS
 from FormatED import FormatWithEditDist
+from DataLoader import DataLoader
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -108,6 +104,7 @@ def inference(args, tmos, loader, onmttok):
         generated_txts = []
         for batch in loader:
             n_batchs += 1
+            indexs = batch['indexs']
             input_ids = batch['source_ids'].to(tmos.device, dtype = torch.long)
             attention_mask = batch['source_mask'].to(tmos.device, dtype = torch.long)
             generated_ids = tmos.generate(input_ids, attention_mask, is_inference=True)
@@ -119,7 +116,7 @@ def inference(args, tmos, loader, onmttok):
                 target_txts.extend(target_txt)
 
             for i in range(0, len(generated_txt), args.n_best): #if n_best is 5: generated_txt[0, 1, 2, 3, 4] are 5-bests corrections of the same input sentence
-                out = []
+                out = ["{}".format(indexs[i]+1)]
                 generated_txts.append(generated_txt[i]) ### the 1-best will be used for wer
                 for pred in generated_txt[i:i+args.n_best]:
                     out.append(pred)
@@ -148,6 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--maxl_tgt", default=128, type=int, help="max length (target) sentence (128)")
     parser.add_argument("--prefix", default="GEC:", type=str, help="prefix prepended to source sentences (GEC:)")
     parser.add_argument("--batch_sz", default=8, type=int, help="batch size (8)")
+    parser.add_argument("--batch_tp", default="sentences", type=str, help="batch type: sentences or tokens (sentences)")
     parser.add_argument('--seed', type=int, default=23, help="seed for randomness (23)")
     parser.add_argument("--cpu", action='store_true', help="force use cpu")
     group_training = parser.add_argument_group("Training")
@@ -155,6 +153,7 @@ if __name__ == "__main__":
     group_training.add_argument("--trn_tgt", default=None, type=str, help="train (target) file")
     group_training.add_argument("--val_src", default=None, type=str, help="valid (source) file")
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
+    group_training.add_argument("--shard_sz", default=200000, type=int, help="shard size (200000)")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
     group_training.add_argument("--valid_n", default=5000, type=int, help="validate every this number of steps (5000)")
@@ -197,10 +196,9 @@ if __name__ == "__main__":
     ####################
     ### loading data ###
     ####################
-    dsl = DataSetLoader(args, tmos.tokenizer)
-    train_loader, n_train = dsl(args.trn_src, args.trn_tgt, shuffle=True) if args.trn_src is not None and args.trn_tgt is not None else (None, 0)
-    valid_loader, n_valid = dsl(args.val_src, args.val_tgt, shuffle=False) if args.val_src is not None and args.val_tgt is not None else (None, 0)
-    infer_loader, n_infer = dsl(args.tst_src, args.tst_tgt, shuffle=False) if args.tst_src is not None else (None, 0)
+    train_loader = DataLoader(args, tmos.tokenizer, args.trn_src, args.trn_tgt) if args.trn_src is not None else None
+    valid_loader = DataLoader(args, tmos.tokenizer, args.val_src, args.val_tgt) if args.val_src is not None else None
+    infer_loader = DataLoader(args, tmos.tokenizer, args.tst_src, args.tst_tgt) if args.tst_src is not None else None
     onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=False)
 
     ####################
@@ -213,7 +211,7 @@ if __name__ == "__main__":
         for epoch in range(1, args.epochs+1):
             train(args, epoch, tmos, train_loader, valid_loader, onmttok)
         toc = time.time()
-        logging.info("learning took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_train/(toc-tic), 100.0*len(train_loader)/(toc-tic)))
+        logging.info("learning took {:.2f} seconds, {:.2f} sentences/sec {:.2f} batchs/sec".format(toc-tic, len(train_loader)/(toc-tic), train_loader.n_batchs_retrieved/(toc-tic)))
         logging.info("[Done]")
         sys.exit()
         
@@ -225,13 +223,19 @@ if __name__ == "__main__":
         tic = time.time()
         inference(args, tmos, infer_loader, onmttok)
         toc = time.time()
-        logging.info("inference took {:.2f} seconds, {:.2f} sentences/sec, {:.2f} batchs/sec".format(toc-tic, 100.0*n_infer/(toc-tic), 100.0*len(infer_loader)/(toc-tic)))
+        logging.info("inference took {:.2f} seconds, {:.2f} sentences/sec {:.2f} batchs/sec".format(toc-tic, len(infer_loader)/(toc-tic), infer_loader.n_batchs_retrieved/(toc-tic)))
         logging.info("[Done]")
         sys.exit()
 
 
-    while True:
-        logging.info('j\'attends ton entrée:')
-        input_sentence_loader, _ = dsl(None, None, shuffle=False)
-        inference(args, tmos, input_sentence_loader, onmttok)
-        
+    tmos.model.eval()
+    with torch.no_grad():
+        for l in sys.stdin:
+            l = args.prefix+l.rstrip()
+            dic = tmos.tokenizer([l], max_length=args.maxl_src, truncation=True)        
+            input_ids = torch.LongTensor(dic['input_ids']).to(tmos.device, dtype = torch.long)
+            attention_mask = torch.LongTensor(dic['attention_mask']).to(tmos.device, dtype = torch.long)
+            generated_ids = tmos.generate(input_ids, attention_mask, is_inference=True)
+            generated_txt = tmos.decode(generated_ids[0]) #[bsxnb, tl]           
+            print(generated_txt)
+            logging.info('[input]\t{}\t[output]\t{}'.format(l,generated_txt))
