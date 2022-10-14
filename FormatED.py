@@ -6,14 +6,14 @@ import edit_distance
 class FormatWithEditDist():
 
     def __init__(self, onmttok, BAR='║', BEG='《', END='》'):
-        self.onnmttok = onmttok
+        self.onmttok = onmttok
         self.BAR = BAR
         self.BEG = "" #BEG                                                                                                                                                                                                                                                       
         self.END = "" #END                                                                                                                                                                                                                                                       
 
     def __call__(self, src_txt, tgt_txt):
-        src = onmttok(src_txt)
-        tgt = onmttok(tgt_txt)
+        src = self.onmttok(src_txt)
+        tgt = self.onmttok(tgt_txt)
         sm = edit_distance.SequenceMatcher(a=src, b=tgt)
         out = []
         for opcode in sm.get_opcodes():
