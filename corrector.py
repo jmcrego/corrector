@@ -39,11 +39,11 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
         labels[labels == tmos.tokenizer.pad_token_id] = -100
         
         outputs = tmos(input_ids, attention_mask, labels) # forward
-        loss = outputs.loss / args.accum # args.accum batchs will be accumulated before model update, so i normalize by args.accum batchs
+        loss = outputs.loss / args.accum_n # args.accum_n batchs will be accumulated before model update, so i normalize by args.accum_n batchs
         loss.backward() # compute/accumulate gradients (until step is called)
         loss_accum += loss.item()
 
-        if n_batch % args.accum == 0: # perform model update (step) every args.accum batchs
+        if n_batch % args.accum_n == 0: # perform model update (step) every args.accum_n batchs
             n_steps += 1
             sum_loss_to_report += loss_accum ### sum accumulated loss to report average after report_n steps
             loss_accum = 0. ## reset accumulated loss
@@ -61,7 +61,7 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
             if n_steps % args.valid_n == 0:
                 logging.info("Running validation...")
                 wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
-                logging.info("valid wer: {:.2f} (#hyp={} #ref={}) step:{}".format(wer_score, nhyp, nref, n_steps))
+                logging.info("valid wer: {:.2f} (#hyp={} #ref={}) lr={:.2f} step:{}".format(wer_score, nhyp, nref, tmos.optimizer.param_groups[0]["lr"], n_steps))
                 if min_valid_wer is None or wer_score < min_valid_wer:
                     min_valid_wer = wer_score
                     logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
