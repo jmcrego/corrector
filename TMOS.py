@@ -1,9 +1,8 @@
 import os
 import sys
-import torch
 import logging
-from transformers import AdamW, get_scheduler
-from transformers import T5ForConditionalGeneration, T5Tokenizer
+from transformers import AdamW, get_polynomial_decay_schedule_with_warmup
+from transformers import T5ForConditionalGeneration
 from transformers import MT5ForConditionalGeneration, T5Tokenizer
 from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
@@ -19,6 +18,7 @@ class TMOS():
             save_local = False
             with open(self.args.dir + '/path', 'r') as fd:
                 self.args.path = fd.readlines()[0].rstrip()
+                
         else: ### begin training
             if self.args.path is None:
                 logging.error('impossible to guess path from dir {} use --path'.format(self.args.dir))
@@ -56,27 +56,24 @@ class TMOS():
             
         self.model = self.model.to(self.device)
 
-    def build_optimizer_scheduler(self, num_training_steps):
-        logging.info('build optimizer/scheduler')
+    def build_optimizer(self):
+        logging.info('build AdamW optimizer')
         self.optimizer = AdamW(params=self.model.parameters(), lr=self.args.lr, betas=(self.args.beta1, self.args.beta2), eps=self.args.eps, weight_decay=self.args.wdecay)
-        if self.args.sched is not None:
-            lr_scheduler = get_scheduler(self.args.sched, optimizer=self.optimizer, num_warmup_steps=self.args.warmup, num_training_steps=num_training_steps)
-            self.scheduler = lr_scheduler
+        logging.info('build polynomial decay with warmup scheduler')
+        lr_scheduler = get_polynomial_decay_schedule_with_warmup(self.optimizer, num_warmup_steps=self.args.warmup, num_training_steps=self.args.steps, power=self.args.power, lr_end=self.args.lr_end)
+        logging.info('build scheduler')
+        self.scheduler = lr_scheduler
             
     def save(self):
         logging.info("saving model...")
         self.model.save_pretrained(self.args.dir) #save model
-        #logging.info("saving optimizer...")
-        #torch.save(self.optimizer.state_dict(), self.args.dir + "/optimizer.pth.tar") #save optim
                 
     def __call__(self, input_ids, attention_mask, labels):
         return self.model(input_ids=input_ids,attention_mask=attention_mask,labels=labels)
-
     
     def decode(self, ids):
         return self.tokenizer.decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 
-    
     def generate(self, input_ids, attention_mask, is_inference=False):
         #m2m100_418M use: forced_bos_token_id=tokenizer.get_lang_id("en")
         return self.model.generate(input_ids=input_ids,

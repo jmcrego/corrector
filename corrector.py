@@ -155,19 +155,22 @@ if __name__ == "__main__":
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
     group_training.add_argument("--shard_sz", default=200000, type=int, help="shard size (200000)")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
+    group_training.add_argument("--steps", default=500000, type=int, help="number of training steps (500000)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
     group_training.add_argument("--valid_n", default=5000, type=int, help="validate every this number of steps (5000)")
     group_training.add_argument("--save_n", default=5, type=int, help="save best n checkpoints according to validation score (not implemented)")
     group_training.add_argument('--accum_n', type=int, default=1, help="accumulate this many batchs before model update (not implemented)")
     group_training.add_argument("--clip", default=0.0, type=float, help="clip to max gradient norm (0.0)")
-    group_optim = parser.add_argument_group("Optimization") #AdamW
+    group_optim = parser.add_argument_group("Optimization (AdamW)")
     group_optim.add_argument("--lr", default=2e-4 , type=float, help="learning rate for AdamW optimizer (2e-4)")
     group_optim.add_argument("--eps", default=1e-8, type=float, help="epsilon for AdamW optimizer (1e-8)")
     group_optim.add_argument("--beta1", default=0.9, type=float, help="beta1 for AdamW optimizer (0.9)")
     group_optim.add_argument("--beta2", default=0.999, type=float, help="beta2 for AdamW optimizer (0.999)")
     group_optim.add_argument("--wdecay", default=0, type=float, help="weight decay for AdamW optimizer (0)")
-    group_optim.add_argument("--sched", default=None, type=str, help="scheduler type (None)")
-    group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps (0)")
+    group_optim = parser.add_argument_group("Scheduler (polynomial decay with warmup)")
+    group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps in polynomial scheduler (0)")
+    group_optim.add_argument("--power", default=1.5, type=float, help="power in polynomial scheduler (1.5)")
+    group_optim.add_argument("--lr_end", default=1e-6, type=float, help="lower learning rate in polynomial scheduler (1e-6)")
     group_inference = parser.add_argument_group("Inference")
     group_inference.add_argument("--tst_src", default=None, type=str, help="test (source) file")
     group_inference.add_argument("--tst_tgt", default=None, type=str, help="test (target) file used for error measure")
@@ -205,7 +208,7 @@ if __name__ == "__main__":
     ### Training loop ##
     ####################
     if train_loader is not None and valid_loader is not None: 
-        tmos.build_optimizer_scheduler(len(train_loader)*args.epochs)
+        tmos.build_optimizer()
         logging.info("Running learning...")
         tic = time.time()
         for epoch in range(1, args.epochs+1):
@@ -228,6 +231,7 @@ if __name__ == "__main__":
         sys.exit()
 
 
+    logging.info("Running inference from stdin...")
     tmos.model.eval()
     with torch.no_grad():
         for l in sys.stdin:
