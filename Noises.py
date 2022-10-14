@@ -151,22 +151,22 @@ class Case():
     def __call__(self, txt):
         if txt.isupper(): # IBM
             if len(txt) > 1 and random.random() < 0.5:
-                return txt[0] + txt[1:].lower() #Ibm
+                return txt[0] + txt[1:].lower(), ':upper' #Ibm
             else:
-                return txt.lower() # ibm
+                return txt.lower(), ':upper' # ibm
         
         if txt.islower(): #maison
             if len(txt) > 1 and random.random() < 0.5:
-                return txt[0].upper() + txt[1:] #Maison
+                return txt[0].upper() + txt[1:], ':lower' #Maison
             else:
-                return txt.upper() #MAISON
+                return txt.upper(), ':lower' #MAISON
         
         if txt[0].isupper() and txt[1:].islower(): #Table
             if random.random() < 0.5:
-                return txt.upper() #TABLE
+                return txt.upper(), ':first' #TABLE
             else:
-                return txt.lower() #table
-        return None
+                return txt.lower(), ':first' #table
+        return None, None
 
 class Hyphen():
     def __init__(self):
@@ -174,15 +174,15 @@ class Hyphen():
 
     def __call__(self, txt_clean, prev_tok, post_tok): #txt may contain joiners
         if txt_clean != ONMTTOK_JOINER + '-' + ONMTTOK_JOINER:
-            return None
+            return None, None
 
         if not PATTERN_WORD.match(prev_tok) or not PATTERN_WORD.match(post_tok):
-            return None
+            return None, None
 
         if random.random() < 0.5:
-            return ONMTTOK_JOINER #joins prev/post tokens
+            return ONMTTOK_JOINER, ':join' #joins prev/post tokens
         
-        return '' #deletes joiner
+        return '', ':del' #deletes joiner
     
 class Space():
     def __init__(self):

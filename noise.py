@@ -75,14 +75,14 @@ def noise_token(txt_clean, prev_tok, post_tok, args, stats, misspell, grammar, h
                 return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'misspell'+type_misspell
 
         elif next_error == 'case':
-            txt_noised = case(str(txt))
+            txt_noised, type_case = case(str(txt))
             if txt_noised is not None and txt_noised != txt:
-                return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'case'
+                return add_joiners(txt_noised, starts_with_joiner, ends_with_joiner), 'case'+type_case
 
         elif next_error == 'hyphen':
-            txt_noised = hyphen(str(txt_clean), prev_tok, post_tok)
+            txt_noised, type_hyphen = hyphen(str(txt_clean), prev_tok, post_tok)
             if txt_noised is not None:
-                return txt_noised, 'hyphen'
+                return txt_noised, 'hyphen'+type_hyphen
 
         elif next_error == 'space':
             txt_noised, type_space = space(str(txt_clean), prev_tok, post_tok)
@@ -104,6 +104,8 @@ def noise_sentence(toks, args, stats, misspell, grammar, homophone, case, hyphen
     idxs = [idx for idx in range(len(toks))]
     random.shuffle(idxs)
     n_errors = 0
+    errors = ['-'] * len(toks)
+    toks_noisy = toks[:]
     for idx in idxs:
         if n_errors == n_noises:
             break
@@ -116,9 +118,10 @@ def noise_sentence(toks, args, stats, misspell, grammar, homophone, case, hyphen
             else:
                 logging.info('[{}] {} ---> {}'.format(error, toks[idx], tok))
             n_errors += 1
-            toks[idx] = tok
+            toks_noisy[idx] = tok
+            errors[idx] = error
             stats[error] += 1
-    return toks, n_errors
+    return toks_noisy, errors, n_errors
 
 #########################################################################################################
 #########################################################################################################
@@ -171,7 +174,9 @@ if __name__ == '__main__':
         n_sentences += 1
         txt_clean = txt_clean.rstrip()
         tok_clean = onmttok(txt_clean)
-        tok_noisy, n_errors = noise_sentence(tok_clean, args, stats, misspell, grammar, homophone, case, hyphen, space, duplicate)
+        tok_noisy, errors, n_errors = noise_sentence(tok_clean, args, stats, misspell, grammar, homophone, case, hyphen, space, duplicate)
+        for i in range(len(tok_clean)):
+            print(tok_clean[i] + '\t' + tok_noisy[i] + '\t' + errors[i])
         txt_noisy = onmttok.detokenize(tok_noisy)
         if args.o is not None:
             fdo_noisy.write(txt_noisy + '\n')
