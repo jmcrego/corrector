@@ -25,42 +25,51 @@ def set_seed(seed):
 def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
     N = len(train_loader)
     min_valid_wer = None
-    sum_loss = 0.
+    sum_loss_to_report = 0.
+    loss_accum = 0.
     n_steps = 0
+    n_batch = 0
+    tmos.optimizer.zero_grad()
     for batch in train_loader:
+        n_batch += 1
         tmos.model.train()
         input_ids = batch["source_ids"].to(tmos.device, dtype=torch.long)
         attention_mask = batch["source_mask"].to(tmos.device, dtype=torch.long) 
         labels = batch["target_ids"].to(tmos.device, dtype=torch.long)
         labels[labels == tmos.tokenizer.pad_token_id] = -100
-        ### forward
-        outputs = tmos(input_ids, attention_mask, labels) 
-        loss = outputs.loss #[0]
-        n_steps += 1
-        loss.backward()
-        sum_loss += loss
-        if args.clip:
-            torch.nn.utils.clip_grad_norm_(tmos.model.parameters(), args.clip)
-        tmos.optimizer.step()
-        if args.sched is not None:
-            tmos.scheduler.step()
-        tmos.optimizer.zero_grad()
+        
+        outputs = tmos(input_ids, attention_mask, labels) # forward
+        loss = outputs.loss / args.accum # args.accum batchs will be accumulated before model update, so i normalize by args.accum batchs
+        loss.backward() # compute/accumulate gradients (until step is called)
+        loss_accum += loss.item()
 
-        if n_steps % args.report_n == 0:
-            logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss/args.report_n,tmos.optimizer.param_groups[0]["lr"]))
-            sum_loss = 0.
+        if n_batch % args.accum == 0: # perform model update (step) every args.accum batchs
+            n_steps += 1
+            sum_loss_to_report += loss_accum ### sum accumulated loss to report average after report_n steps
+            loss_accum = 0. ## reset accumulated loss
             
-        if n_steps % args.valid_n == 0:
-            logging.info("Running validation...")
-            wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
-            logging.info("valid wer: {:.2f} (#hyp={} #ref={}) step:{}".format(wer_score, nhyp, nref, n_steps))
-            if min_valid_wer is None or wer_score < min_valid_wer:
-                min_valid_wer = wer_score
-                logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
-                tmos.save()
-                with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
-                    fdo.write('\n'.join(generated_txts) + '\n')
-                    
+            if args.clip:
+                torch.nn.utils.clip_grad_norm_(tmos.model.parameters(), args.clip)
+            tmos.optimizer.step() ### updates model weights
+            tmos.scheduler.step()
+            tmos.optimizer.zero_grad()
+            
+            if n_steps % args.report_n == 0:
+                logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss_to_report/args.report_n,tmos.optimizer.param_groups[0]["lr"]))
+                sum_loss_to_report = 0.
+            
+            if n_steps % args.valid_n == 0:
+                logging.info("Running validation...")
+                wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
+                logging.info("valid wer: {:.2f} (#hyp={} #ref={}) step:{}".format(wer_score, nhyp, nref, n_steps))
+                if min_valid_wer is None or wer_score < min_valid_wer:
+                    min_valid_wer = wer_score
+                    logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
+                    tmos.save()
+                    with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
+                        fdo.write('\n'.join(generated_txts) + '\n')
+                        
+    logging.info("Running validation...")
     wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
     logging.info("valid wer: {:.2f} (#hyp={} #ref={}) Step:{}".format(wer_score, nhyp, nref, n_steps))
     if min_valid_wer is None or wer_score < min_valid_wer:
@@ -144,8 +153,9 @@ if __name__ == "__main__":
     parser.add_argument("--maxl_src", default=512, type=int, help="max length (source) sentence (512)")
     parser.add_argument("--maxl_tgt", default=128, type=int, help="max length (target) sentence (128)")
     parser.add_argument("--prefix", default="GEC:", type=str, help="prefix prepended to source sentences (GEC:)")
-    parser.add_argument("--batch_sz", default=8, type=int, help="batch size (8)")
-    parser.add_argument("--batch_tp", default="sentences", type=str, help="batch type: sentences or tokens (sentences)")
+    parser.add_argument("--batch_sz", default=1024, type=int, help="batch size (1024)")
+    parser.add_argument("--batch_tp", default="tokens", type=str, help="batch type: sentences or tokens (tokens)")
+    parser.add_argument("--shard_sz", default=200000, type=int, help="shard size (200000)")
     parser.add_argument('--seed', type=int, default=23, help="seed for randomness (23)")
     parser.add_argument("--cpu", action='store_true', help="force use cpu")
     group_training = parser.add_argument_group("Training")
@@ -153,7 +163,6 @@ if __name__ == "__main__":
     group_training.add_argument("--trn_tgt", default=None, type=str, help="train (target) file")
     group_training.add_argument("--val_src", default=None, type=str, help="valid (source) file")
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
-    group_training.add_argument("--shard_sz", default=200000, type=int, help="shard size (200000)")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
     group_training.add_argument("--steps", default=500000, type=int, help="number of training steps to run (500000)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
@@ -170,7 +179,7 @@ if __name__ == "__main__":
     group_optim = parser.add_argument_group("Scheduler (polynomial decay with warmup)")
     group_optim.add_argument("--warmup", default=0, type=int, help="number of warmup steps in polynomial scheduler (0)")
     group_optim.add_argument("--power", default=1.5, type=float, help="power in polynomial scheduler (1.5)")
-    group_optim.add_argument("--lr_end", default=1e-6, type=float, help="lower learning rate in polynomial scheduler (1e-6)")
+    group_optim.add_argument("--lr_end", default=1e-5, type=float, help="lower learning rate in polynomial scheduler (1e-5)")
     group_inference = parser.add_argument_group("Inference")
     group_inference.add_argument("--tst_src", default=None, type=str, help="test (source) file")
     group_inference.add_argument("--tst_tgt", default=None, type=str, help="test (target) file used for error measure")
