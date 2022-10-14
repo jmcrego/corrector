@@ -52,7 +52,7 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
                 torch.nn.utils.clip_grad_norm_(tmos.model.parameters(), args.clip)
             tmos.optimizer.step() ### updates model weights
             tmos.scheduler.step()
-            tmos.optimizer.zero_grad()
+            tmos.optimizer.zero_grad() ### resets gradients
             
             if n_steps % args.report_n == 0:
                 logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss_to_report/args.report_n,tmos.optimizer.param_groups[0]["lr"]))
@@ -60,36 +60,24 @@ def train(args, epoch, tmos, train_loader, valid_loader, onmttok):
             
             if n_steps % args.valid_n == 0:
                 logging.info("Running validation...")
-                wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
-                logging.info("valid wer: {:.2f} (#hyp={} #ref={}) lr={:.2f} step:{}".format(wer_score, nhyp, nref, tmos.optimizer.param_groups[0]["lr"], n_steps))
-                if min_valid_wer is None or wer_score < min_valid_wer:
-                    min_valid_wer = wer_score
-                    logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
-                    tmos.save()
-                    with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
-                        fdo.write('\n'.join(generated_txts) + '\n')
-                        
+                min_valid_wer = validation(args, tmos, loader, onmttok, min_valid_wer, n_steps)
+
+            if n_steps >= args.steps:
+                break
+                
     logging.info("Running validation...")
-    wer_score, nhyp, nref, generated_txts = validation(args, tmos, valid_loader, onmttok)
-    logging.info("valid wer: {:.2f} (#hyp={} #ref={}) Step:{}".format(wer_score, nhyp, nref, n_steps))
-    if min_valid_wer is None or wer_score < min_valid_wer:
-        min_valid_wer = wer_score
-        logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
-        tmos.save()
-        with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
-            fdo.write('\n'.join(generated_txts) + '\n')
+    min_valid_wer = validation(args, tmos, loader, onmttok, min_valid_wer, n_steps)
             
 
 ##############################################################################################################
 
-def validation(args, tmos, loader, onmttok):
+def validation(args, tmos, loader, onmttok, min_valid_wer, n_steps):
     wer_scorer = wer(onmttok)
     tmos.model.eval()
     with torch.no_grad():
         n_batchs = 0
         target_txts = []
         generated_txts = []
-        #sum_loss = 0.
         for batch in loader:
             n_batchs += 1
             input_ids = batch['source_ids'].to(tmos.device, dtype = torch.long)
@@ -100,9 +88,17 @@ def validation(args, tmos, loader, onmttok):
             generated_txt = [tmos.decode(ids) for ids in generated_ids]
             target_txts.extend(target_txt)
             generated_txts.extend(generated_txt)
-        wer_score, nhyp, nref = wer_scorer(generated_txts,target_txts)
-    return wer_score, nhyp, nref, generated_txts
-    
+    wer_score, nhyp, nref = wer_scorer(generated_txts,target_txts)
+    logging.info("valid wer: {:.2f} (#hyp={} #ref={}) Step:{}".format(wer_score, nhyp, nref, n_steps))
+    if min_valid_wer is None or wer_score < min_valid_wer:
+        min_valid_wer = wer_score
+        logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,tmos.optimizer.param_groups[0]["lr"],n_steps))
+        tmos.save()
+        with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
+            fdo.write('\n'.join(generated_txts) + '\n')
+    return min_valid_wer
+
+
 def inference(args, tmos, loader, onmttok):
     wer_scorer = wer(onmttok)
     formatWithED = FormatWithEditDist(onmttok)
