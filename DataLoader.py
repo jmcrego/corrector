@@ -41,7 +41,7 @@ class DataLoader():
             logging.info('tokenized source shard with {} examples'.format(len(shard_source_raw)))
             if len(self.target_raw):
                 shard_target_raw = self.target_raw[shard_ini:shard_fin]
-                self.shard_target_dic = tokenizer(shard_target_raw, max_length=self.args.maxl_tgt, truncation=True)
+                self.shard_target_dic = self.tokenizer(shard_target_raw, max_length=self.args.maxl_tgt, truncation=True)
                 logging.info('tokenized target shard with {} examples'.format(len(shard_target_raw)))
 
             self.indexs_source_sorted_by_len = np.argsort([len(l) for l in self.shard_source_dic['input_ids']]).tolist()
