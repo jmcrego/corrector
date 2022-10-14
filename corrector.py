@@ -155,7 +155,7 @@ if __name__ == "__main__":
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
     group_training.add_argument("--shard_sz", default=200000, type=int, help="shard size (200000)")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
-    group_training.add_argument("--steps", default=500000, type=int, help="number of training steps (500000)")
+    group_training.add_argument("--steps", default=500000, type=int, help="number of training steps to run (500000)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
     group_training.add_argument("--valid_n", default=5000, type=int, help="validate every this number of steps (5000)")
     group_training.add_argument("--save_n", default=5, type=int, help="save best n checkpoints according to validation score (not implemented)")
