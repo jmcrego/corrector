@@ -1,17 +1,19 @@
 import os
 import sys
 import logging
+import pyonmttok
 from transformers import AdamW, get_polynomial_decay_schedule_with_warmup
 from transformers import T5ForConditionalGeneration
 from transformers import MT5ForConditionalGeneration, T5Tokenizer
 from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 
-class TMOS():
+class Experiment():
     
     def __init__(self, args, device):
         self.args = args
         self.device = device
+        self.onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=False) #used for wer/EDist calculation
         
         if os.path.exists(self.args.dir + '/path'): ### resume training or inference
             read_from = self.args.dir
@@ -57,25 +59,40 @@ class TMOS():
         self.model = self.model.to(self.device)
 
     def build_optimizer(self):
-        logging.info('build AdamW optimizer')
-        self.optimizer = AdamW(params=self.model.parameters(), lr=self.args.lr, betas=(self.args.beta1, self.args.beta2), eps=self.args.eps, weight_decay=self.args.wdecay)
-        logging.info('build polynomial decay with warmup scheduler')
-        lr_scheduler = get_polynomial_decay_schedule_with_warmup(self.optimizer, num_warmup_steps=self.args.warmup, num_training_steps=self.args.steps, power=self.args.power, lr_end=self.args.lr_end)
-        logging.info('build scheduler')
+        logging.info('building AdamW optimizer...')
+        self.optimizer = AdamW(params=self.model.parameters(),
+                               lr=self.args.lr,
+                               betas=(self.args.beta1, self.args.beta2),
+                               eps=self.args.eps,
+                               weight_decay=self.args.wdecay)
+        logging.info('building polynomial decay with warmup scheduler...')
+        lr_scheduler = get_polynomial_decay_schedule_with_warmup(self.optimizer,
+                                                                 num_warmup_steps=self.args.warmup,
+                                                                 num_training_steps=self.args.steps,
+                                                                 power=self.args.power,
+                                                                 lr_end=self.args.lr_end)
         self.scheduler = lr_scheduler
-            
+
+    def step(self):
+        self.optimizer.step()
+        self.scheduler.step()
+        
     def save(self):
         logging.info("saving model...")
         self.model.save_pretrained(self.args.dir) #save model
                 
     def __call__(self, input_ids, attention_mask, labels):
-        return self.model(input_ids=input_ids,attention_mask=attention_mask,labels=labels)
+        return self.model(input_ids=input_ids,
+                          attention_mask=attention_mask,
+                          labels=labels)
     
     def decode(self, ids):
-        return self.tokenizer.decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        return self.tokenizer.decode(ids,
+                                     skip_special_tokens=True,
+                                     clean_up_tokenization_spaces=True)
 
     def generate(self, input_ids, attention_mask, is_inference=False):
-        #m2m100_418M use: forced_bos_token_id=tokenizer.get_lang_id("en")
+        #m2m100_418M use: forced_bos_token_id=tokenizer.get_lang_id("fr")
         return self.model.generate(input_ids=input_ids,
                                    attention_mask=attention_mask,
                                    do_sample=False,

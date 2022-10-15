@@ -15,17 +15,19 @@ class DataLoader():
         self.n_batchs_retrieved = 0
         
         if fsrc is not None:
-            for fsrc in fsrc.split(','):
-                with open(fsrc,'r') as fd:
+            fsrc = fsrc.split(',')
+            for fs in fsrc:
+                with open(fs,'r') as fd:
                     lsrc = [args.prefix+l.rstrip() for l in fd]
-            self.source_raw.extend(lsrc)
+                self.source_raw.extend(lsrc)
             logging.info('Read {} source sentences from {}'.format(len(self.source_raw),fsrc))
             
         if ftgt is not None:
-            for ftgt in ftgt.split(','):
-                with open(ftgt,'r') as fd:
+            ftgt = ftgt.split(',')
+            for ft in ftgt:
+                with open(ft,'r') as fd:
                     ltgt = [l.rstrip() for l in fd]
-            self.target_raw.extend(ltgt)
+                self.target_raw.extend(ltgt)
             logging.info('Read {} target sentences from {}'.format(len(self.target_raw),ftgt))
 
         assert len(self.target_raw)==0 or len(self.source_raw) == len(self.target_raw)
