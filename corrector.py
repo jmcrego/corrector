@@ -23,12 +23,13 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
 
 def train(args, epoch, exp, train_loader, valid_loader):
-    N = len(train_loader)
+    N = len(train_loader) #num of sentences
     min_valid_wer = None
     sum_loss_to_report = 0.
     loss_accum = 0.
     n_steps = 0
     n_batch = 0
+    n_sents = 0
     exp.optimizer.zero_grad()
     for batch in train_loader:
         n_batch += 1
@@ -37,6 +38,7 @@ def train(args, epoch, exp, train_loader, valid_loader):
         attention_mask = batch["source_mask"].to(exp.device, dtype=torch.long) 
         labels = batch["target_ids"].to(exp.device, dtype=torch.long)
         labels[labels == exp.tokenizer.pad_token_id] = -100
+        n_sents += input_ids.size(dim=0)
         
         outputs = exp(input_ids, attention_mask, labels) # forward
         loss = outputs.loss / args.accum_n # args.accum_n batchs will be accumulated before model update, so i average over args.accum_n batchs
@@ -55,7 +57,7 @@ def train(args, epoch, exp, train_loader, valid_loader):
             exp.optimizer.zero_grad() ### resets gradients
             
             if n_steps % args.report_n == 0:
-                logging.info("Epoch:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_steps,N,sum_loss_to_report/args.report_n,exp.optimizer.param_groups[0]["lr"]))
+                logging.info("Epoch:{}/{} Sents:{}/{} Step:{}/{} loss:{:.6f} lr={:.6f}".format(epoch,args.epochs,n_sents,N,n_steps,args.steps,sum_loss_to_report/args.report_n,exp.optimizer.param_groups[0]["lr"]))
                 sum_loss_to_report = 0.
             
             if n_steps % args.valid_n == 0:
@@ -63,8 +65,11 @@ def train(args, epoch, exp, train_loader, valid_loader):
                 min_valid_wer = validation(args, exp, valid_loader, min_valid_wer, n_steps)
 
             if n_steps >= args.steps:
+                loggin.info("Reached max number of steps: {}".format(n_steps))
                 break
                 
+    loggin.info("Reached end of epoch: {}".format(epoch))
+    
     logging.info("Running validation...")
     min_valid_wer = validation(args, exp, valid_loader, min_valid_wer, n_steps)
             
@@ -76,8 +81,10 @@ def validation(args, exp, loader, min_valid_wer, n_steps):
         n_batchs = 0
         target_txts = []
         generated_txts = []
+        indexs = []
         for batch in loader:
             n_batchs += 1
+            indexs.extend(batch['indexs'])
             input_ids = batch['source_ids'].to(exp.device, dtype = torch.long)
             attention_mask = batch['source_mask'].to(exp.device, dtype = torch.long)
             target_ids = batch['target_ids']
@@ -93,7 +100,8 @@ def validation(args, exp, loader, min_valid_wer, n_steps):
         logging.info("NEW min valid wer: {:.2f} lr={:.6f} Saving validation/model Step:{}...".format(min_valid_wer,exp.optimizer.param_groups[0]["lr"],n_steps))
         exp.save()
         with open("{}/validation_{}_{:.2f}.out".format(args.dir,n_steps,wer_score), 'w') as fdo:
-            fdo.write('\n'.join(generated_txts) + '\n')
+            for ind in np.argsort(np.asarray(indexs)):
+                fdo.write(generated_txts[ind] + '\n')
     return min_valid_wer
 
 

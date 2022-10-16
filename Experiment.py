@@ -60,6 +60,7 @@ class Experiment():
 
     def build_optimizer(self):
         logging.info('building AdamW optimizer...')
+        #torch.optim.AdamW
         self.optimizer = AdamW(params=self.model.parameters(),
                                lr=self.args.lr,
                                betas=(self.args.beta1, self.args.beta2),
