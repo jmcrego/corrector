@@ -207,16 +207,11 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
     exp = Experiment(args, device)
 
-    ####################
-    ### loading data ###
-    ####################
+    ################
+    ### Training ###
+    ################
     train_loader = DataLoader(args, exp.tokenizer, args.trn_src, args.trn_tgt) if args.trn_src is not None else None
     valid_loader = DataLoader(args, exp.tokenizer, args.val_src, args.val_tgt) if args.val_src is not None else None
-    infer_loader = DataLoader(args, exp.tokenizer, args.tst_src, args.tst_tgt) if args.tst_src is not None else None
-
-    ####################
-    ### Training loop ##
-    ####################
     if train_loader is not None and valid_loader is not None: 
         exp.build_optimizer()
         logging.info("Running learning...")
@@ -231,6 +226,7 @@ if __name__ == "__main__":
     ####################
     ### inference ######
     ####################
+    infer_loader = DataLoader(args, exp.tokenizer, args.tst_src, args.tst_tgt) if args.tst_src is not None else None
     if infer_loader is not None:
         logging.info("Running inference...")
         tic = time.time()

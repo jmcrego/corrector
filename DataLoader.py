@@ -36,6 +36,7 @@ class DataLoader():
         return len(self.source_raw)
         
     def __iter__(self):
+        #num_shards = (len(self.source_raw) + self.args.shard_sz - 1) // self.args.shard_sz
         for shard_ini in range(0,len(self.source_raw), self.args.shard_sz):
             shard_fin = min(shard_ini+self.args.shard_sz,len(self.source_raw))
             shard_source_raw = self.source_raw[shard_ini:shard_fin]

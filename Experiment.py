@@ -2,11 +2,12 @@ import os
 import sys
 import logging
 import pyonmttok
-from transformers import AdamW, get_polynomial_decay_schedule_with_warmup
-from transformers import T5ForConditionalGeneration
-from transformers import MT5ForConditionalGeneration, T5Tokenizer
-from transformers import MBartForConditionalGeneration, MBart50TokenizerFast
-from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
+from transformers import get_polynomial_decay_schedule_with_warmup
+from transformers import AdamW
+from transformers import T5ForConditionalGeneration, T5Tokenizer, T5Config
+from transformers import MT5ForConditionalGeneration, MT5Config
+from transformers import MBartForConditionalGeneration, MBart50TokenizerFast, MBartConfig
+from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer, M2M100Config
 
 class Experiment():
     
@@ -14,7 +15,7 @@ class Experiment():
         self.args = args
         self.device = device
         self.onmttok = pyonmttok.Tokenizer("aggressive", joiner_annotate=False) #used for wer/EDist calculation
-        
+
         if os.path.exists(self.args.dir + '/path'): ### resume training or inference
             read_from = self.args.dir
             save_local = False
@@ -34,18 +35,23 @@ class Experiment():
                 
         if self.args.path == 't5-base': #https://huggingface.co/docs/transformers/model_doc/t5 
             logging.info('loading local {} tokenizer/model'.format(read_from))
+            self.config = T5Config.from_pretrained(self.args.path)
             self.tokenizer = T5Tokenizer.from_pretrained(read_from)
+            #self.model = T5ForConditionalGeneration.from_pretrained(self.path_to_model_dir(read_from), config=self.config)
             self.model = T5ForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'google/mt5-base': #https://huggingface.co/docs/transformers/model_doc/mt5
             logging.info('loading local {} tokenizer/model'.format(read_from))
+            self.config = T5Config.from_pretrained(self.args.path)
             self.tokenizer = T5Tokenizer.from_pretrained(read_from)
             self.model = MT5ForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'facebook/mbart-large-50': #https://huggingface.co/docs/transformers/model_doc/mbart
             logging.info('loading local {} tokenizer/model'.format(read_from))
+            self.config = MBart50Config.from_pretrained(self.args.path)
             self.tokenizer = MBart50TokenizerFast.from_pretrained(read_from, src_lang="fr_XX", tgt_lang="fr_XX")
             self.model = MBartForConditionalGeneration.from_pretrained(read_from)
         elif self.args.path == 'facebook/m2m100_418M': #https://huggingface.co/docs/transformers/model_doc/m2m_100
             logging.info('loading local {} tokenizer/model'.format(read_from))
+            self.config = M2M100Config.from_pretrained(self.args.path)
             self.tokenizer = M2M100Tokenizer.from_pretrained(read_from, src_lang="fr")
             self.model = M2M100ForConditionalGeneration.from_pretrained(read_from)                
         else:
@@ -78,9 +84,10 @@ class Experiment():
         self.optimizer.step()
         self.scheduler.step()
         
-    def save(self):
+    def save(self): #, file_name):
         logging.info("saving model...")
         self.model.save_pretrained(self.args.dir) #save model
+        #self.model.save_pretrained(self.args.dir + '/' + file_name) #save model
                 
     def __call__(self, input_ids, attention_mask, labels):
         return self.model(input_ids=input_ids,
