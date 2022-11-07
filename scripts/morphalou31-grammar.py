@@ -7,6 +7,7 @@ import argparse
 from collections import defaultdict
 
 sep = '|'
+WORD = re.compile(r'^\w+$')
 
 class LemRules():
     
@@ -225,9 +226,14 @@ def rewrite_genre(genre):
 def add_flection(l,toks,txt2pos,txtpos2lem,lempos2txt,txtlempos2feats,base_lem,base_pos,base_spos,base_genre):
     #GRAPHIE;ID;NOMBRE;MODE;GENRE;TEMPS;PERSONNE;PHONÉTIQUE
     txt = rewrite_wrd(toks[0])
+
     if txt is None:
         logging.debug('filtered txt\t{}'.format(l))
         return False
+
+    if WORD.match(txt) is None: #i dont want punctuation in words (ex: Mr. l' vis-à-vis ...)
+        return False
+    
     lem = rewrite_lem(base_lem)
     if lem is None:
         logging.debug('filtered lem\t{}'.format(l))
@@ -236,12 +242,16 @@ def add_flection(l,toks,txt2pos,txtpos2lem,lempos2txt,txtlempos2feats,base_lem,b
     if pos is None:
         logging.debug('filtered pos\t{}'.format(l))
         return False
+
     nombre = rewrite_nombre(toks[2])
     mode   = toks[3]
     genre = rewrite_genre(toks[4]) if toks[4] != '-' else rewrite_genre(base_genre)
     temps  = toks[5]
     pers   = rewrite_pers(toks[6])
 
+    if lem in ['Pa', 'Bq', 'pa', 'lm', 'Hz', 'cd', 'Wh', 'gray', 'VA', 'sr', 'Da', 'S', 'J', 'A', 'C', 'm', 's', 'l', 'L', 'T', 'N', 'H', 'F', 'G', 'g', 'K', 'V', 'W', 'Ci', 'eV', 'Gy', 'lx', 'Sv', 'kat', 'Wb', 'Ω', 'mètre', 'pascal', 'watt', 'gramme', 'calorie', 'hertz', 'octet', 'ampère', 'gauss', 'newton', 'litre', 'cal', 'coulomb', 'curie', 'henry', 'joule', 'kelvin', 'lumen', 'mole', 'ohm', 'radian', 'roentgen', 'tgen', 'röntgens', 'seconde', 'siemens', 'stéradian', 'tesla', 'var', 'volt', 'voltampère', 'wéber', 'weber', 'lux', 'mol', 'röntgen', 'rad', 'katal', 'wattheure', 'farad', 'candéla', 'candela', 'sievert', 'becquerel', 'électronvolts', 'électronvolt', 'dalton', 'daltons']:  #i dont want units and their derivates
+        return False
+    
     txt2pos[txt].add(pos)
     txtpos2lem[txt+sep+pos].add(lem)
     lempos2txt[lem+sep+pos].add(txt)
@@ -313,3 +323,5 @@ if __name__ == '__main__':
                             stxt.add(t)
             if len(stxt) > 1:
                 fdo.write("{}\t{}\n".format(txt,'\t'.join(list(stxt))))
+            if len(stxt) > 9:
+                print("{}\t{}".format(txt,'\t'.join(list(stxt))))
