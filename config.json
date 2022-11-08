@@ -1,0 +1,11 @@
+{
+    "grammar": "resources/Morphalou3.1_CSV.csv.grammar",
+    "homophone": "resources/Morphalou3.1_CSV.csv.homophone",
+    "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 10, "consd": 100, "phone": 100},
+    "noises": {"grammar": 10, "homophone": 50, "punctuation":1000, "hyphen_add": 100, "hyphen_del": 10, "misspell": 100, "case": 100, "space_add": 100, "space_del":100, "duplicate": 100, "swap": 100},
+    "min_r": 0.0,
+    "max_r": 0.5,
+    "max_n": 10,
+    "seed": 23
+}
+
