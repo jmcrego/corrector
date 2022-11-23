@@ -14,13 +14,6 @@ from Spurious import Spurious
 from Replacement import Replacement
 from collections import defaultdict
 
-#JOINER = '￭'
-#SEPAR = 'ǁ'
-#PUNC = ',.;:!?\'"«»<>'
-#IS_WORD = re.compile(r'^[A-Za-zÀ-ÿ]+$')
-#IS_PUNC = re.compile(r'^'+JOINER+'?['+PUNC+']'+JOINER+'?$') #one punctuation char as in PUNC with or without preceding/succeding joiners 
-#NONE = 'NONE' # used for error_type or word_to_predict
-
 class Dict2Class(object):
     def __init__(self, my_dict):
         for key in my_dict:
