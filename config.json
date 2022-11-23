@@ -1,9 +1,9 @@
 {
-    "grammar": "resources/Morphalou3.1_CSV.csv.grammar",
+    "inflect": "resources/Morphalou3.1_CSV.csv.inflect",
     "homophone": "resources/Morphalou3.1_CSV.csv.homophone",
-    "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 10, "consd": 100, "phone": 100},
-    "noises": {"grammar": 10, "homophone": 50, "punctuation":1000, "hyphen_add": 100, "hyphen_del": 10, "misspell": 100, "case": 100, "space_add": 100, "space_del":100, "duplicate": 100, "swap": 100},
-    "min_r": 0.0,
+    "spurious": "resources/Morphalou3.1_CSV.csv.spurious",
+    "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 4, "consd": 25, "phone": 100},
+    "noises": {"inflect": 50, "homophone": 3, "misspell": 3, "punctuation":1, "hyphen_add": 1, "hyphen_del": 100, "case": 1, "space_add": 1, "space_del":1, "copy": 1, "swap": 1, "spurious": 1},
     "max_r": 0.5,
     "max_n": 10,
     "seed": 23

@@ -8,6 +8,7 @@ from transformers import T5ForConditionalGeneration, T5Tokenizer, T5Config
 from transformers import MT5ForConditionalGeneration, MT5Config
 from transformers import MBartForConditionalGeneration, MBart50TokenizerFast, MBartConfig
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer, M2M100Config
+from transformers import AutoConfig, AutoTokenizer, AutoModelForSeq2SeqLM
 
 class Experiment():
     
@@ -53,7 +54,12 @@ class Experiment():
             logging.info('loading local {} tokenizer/model'.format(read_from))
             self.config = M2M100Config.from_pretrained(self.args.path)
             self.tokenizer = M2M100Tokenizer.from_pretrained(read_from, src_lang="fr")
-            self.model = M2M100ForConditionalGeneration.from_pretrained(read_from)                
+            self.model = M2M100ForConditionalGeneration.from_pretrained(read_from)
+        elif self.args.path == 'facebook/nllb-200-distilled-600M': #https://huggingface.co/docs/transformers/model_doc/nllb
+            logging.info('loading local {} tokenizer/model'.format(read_from))
+            self.config = AutoConfig.from_pretrained(self.args.path)
+            self.tokenizer = AutoTokenizer.from_pretrained(self.args.path, src_lang="fra_Latn")
+            self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args.path)
         else:
             logging.error('invalid path option {}'.format(self.args.path))
             sys.exit()
@@ -100,7 +106,11 @@ class Experiment():
                                      clean_up_tokenization_spaces=True)
 
     def generate(self, input_ids, attention_mask, is_inference=False):
-        #m2m100_418M use: forced_bos_token_id=tokenizer.get_lang_id("fr")
+        forced_bos_token_id = None
+        if self.args.path=='facebook/m2m100_418M':
+            forced_bos_token_id = self.tokenizer.get_lang_id("fr")
+        elif self.args.path=='facebook/nllb-200-distilled-600M':
+            forced_bos_token_id = self.tokenizer.get_lang_id("fra_Latn")
         return self.model.generate(input_ids=input_ids,
                                    attention_mask=attention_mask,
                                    do_sample=False,
@@ -109,5 +119,6 @@ class Experiment():
                                    repetition_penalty=self.args.rep_pty,
                                    length_penalty=self.args.len_pty,
                                    early_stopping=self.args.early_stopping,
+                                   forced_bos_token_id=forced_bos_token_id,
                                    num_return_sequences=self.args.n_best if is_inference else 1)
 

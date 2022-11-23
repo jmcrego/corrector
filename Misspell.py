@@ -1,15 +1,17 @@
 import re
 import copy
 import random
+import logging
 import unicodedata
+from collections import defaultdict
 
-CONSONNES_DOUBLES = 'dcflsptmnrgDCFLSPTMNRG' #bkz 
+CONSONNES_DOUBLES = 'dcflsptmnrgDCFLSPTMNRG' #bkz
 ACCENTS = 'aaàáâäeeéèêëiiíìîïooóòôöuuúùûüAAÀÁÂÄEEÉÈÊËIIÍÌÎÏOOÓÒÔÖUUÚÙÛÜ'
-ACCENTS_FREQ = { 'a': {'a':20, 'á':1, 'à':10, 'â':1, 'ä':0},
-                 'e': {'e':20, 'é':10, 'è':9, 'ê':2, 'ë':1},
-                 'i': {'i':20, 'í':3, 'ì':0, 'î':1, 'ï':1},
-                 'o': {'o':20, 'ó':0, 'ò':0, 'ô':2, 'ö':1},
-                 'u': {'u':20, 'ú':0, 'ù':2, 'û':1, 'ü':1}}
+ACCENTS_FREQ = { 'a': {'a':20, 'á':1,  'à':10, 'â':1, 'ä':0},
+                 'e': {'e':20, 'é':10, 'è':9,  'ê':2, 'ë':1},
+                 'i': {'i':20, 'í':3,  'ì':0,  'î':1, 'ï':1},
+                 'o': {'o':20, 'ó':0,  'ò':0,  'ô':2, 'ö':1},
+                 'u': {'u':20, 'ú':0,  'ù':2,  'û':1, 'ü':1}}
 
 KEYBOARD_PUNCT = {'-': '0=p[oòóôö]',
                   '=': '-[]p\\',
@@ -193,9 +195,12 @@ def change_keyboard(letter):
 
 class Misspell():
 
-    def __init__(self,opts):
+    def __init__(self,opts, name):
         self.opts = opts
+        self.name = name
         self.min_word_length = 2 #do not misspell if word is too small
+        self.n_misspell = defaultdict(int)
+        self.n = 0
         
     def __call__(self, word):
         words, types, weights = [], [], []
@@ -207,13 +212,13 @@ class Misspell():
             ### delete char i
             if len(word) > 1:
                 weights.append(self.opts.delete)
-                types.append('misspell:delete')
+                types.append('MISSPELL:delete')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:]
 
             ### repeat char i
             weights.append(self.opts.repeat)
-            types.append('misspell:repeat')
+            types.append('MISSPELL:repeat')
             words.append(word)
             words[-1] = words[-1][:i+1] + words[-1][i:]
 
@@ -222,7 +227,7 @@ class Misspell():
                 c1 = word[i]
                 c2 = word[i+1]
                 weights.append(self.opts.swap)
-                types.append('misspell:swap')
+                types.append('MISSPELL:swap')
                 words.append(word)
                 words[-1] = words[-1][:i] + c2 + c1 + words[-1][i+2:]
 
@@ -230,7 +235,7 @@ class Misspell():
             near_letter = change_keyboard(word[i])
             if near_letter is not None:
                 weights.append(self.opts.close)
-                types.append('misspell:close')
+                types.append('MISSPELL:close')
                 words.append(word)
                 words[-1] = words[-1][:i] + near_letter + words[-1][i+1:]
 
@@ -238,41 +243,62 @@ class Misspell():
             new_letter = change_accent(word[i])
             if new_letter is not None:
                 weights.append(self.opts.diacritics)
-                types.append('misspell:diacr')
+                types.append('MISSPELL:diacr')
                 words.append(word)
                 words[-1] = words[-1][:i] + new_letter + words[-1][i+1:]
 
             ### delete/add char i if doubled consonant
             if i>0 and i<len(word)-2 and word[i] == word[i+1] and word[i] in CONSONNES_DOUBLES:
                 weights.append(self.opts.consd)
-                types.append('misspell:consd:del')
+                types.append('MISSPELL:consd:del')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:] #char i is not added
 
             ### add double consonnant
             if i>0 and i<len(word)-1 and word[i] != word[i+1] and word[i] != word[i-1] and word[i] in CONSONNES_DOUBLES:
                 weights.append(self.opts.consd)
-                types.append('misspell:consd:add')
+                types.append('MISSPELL:consd:add')
                 words.append(word)
                 words[-1] = words[-1][:i+1] + words[-1][i:] #char i is added twice
 
             ### 'ph' -> 'f'
             if len(word)>i+1 and word[i] == 'p' and word[i+1] == 'h':
                 weights.append(self.opts.phone)
-                types.append('misspell:phone:ph2f')
+                types.append('MISSPELL:phone:ph2f')
                 words.append(word)
                 words[-1] = words[-1][:i] + 'f' + words[-1][i+2:]
                 
             ### 'h' -> 
             if word[i] == 'h' and not (i>0 and word[i-1] in 'CcPp'):
                 weights.append(self.opts.phone)
-                types.append('misspell:phone:h2-')
+                types.append('MISSPELL:phone:h2-')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:]
 
+            ### '.+c[EI]' -> '.+ss[EI]' #vacances -> vacansses
+            if i>0 and len(word)>i+1 and word[i] == 'c' and word[i+1].lower() in 'eèéi':
+                weights.append(self.opts.phone)
+                types.append('MISSPELL:phone:c2ss')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'ss' + words[-1][i+1:]
+
+            ### 'ç' -> 'ss' #leçon -> lesson
+            if word[i] == 'ç':
+                weights.append(self.opts.phone)
+                types.append('MISSPELL:phone:ç2ss')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'ss' + words[-1][i+1:]
+                
         if len(words) == 0:
             return '', ''
 
         ### select noisy to inject
         i = random.choices([i for i in range(len(words))],weights)[0]
-        return words[i], types[i]
+        self.n += 1
+        self.n_misspell[types[i]] += 1
+        return words[i], self.name #types[i]
+
+    def stats(self):
+        if self.n:
+            for k, v in sorted(self.n_misspell.items(), key=lambda item: item[1], reverse=True): #if reverse, sorted in descending order
+                logging.info('{}\t{:.2f}%\t{}'.format(v,100.0*v/self.n,k))

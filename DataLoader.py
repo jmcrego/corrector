@@ -20,7 +20,8 @@ class DataLoader():
                 with open(fs,'r') as fd:
                     lsrc = [args.prefix+l.rstrip() for l in fd]
                 self.source_raw.extend(lsrc)
-            logging.info('Read {} source sentences from {}'.format(len(self.source_raw),fsrc))
+                logging.info('{}\t{}'.format(len(self.source_raw),fs))
+            logging.info('Read {} source sentences'.format(len(self.source_raw)))
             
         if ftgt is not None:
             ftgt = ftgt.split(',')
@@ -28,9 +29,10 @@ class DataLoader():
                 with open(ft,'r') as fd:
                     ltgt = [l.rstrip() for l in fd]
                 self.target_raw.extend(ltgt)
-            logging.info('Read {} target sentences from {}'.format(len(self.target_raw),ftgt))
+                logging.info('{}\t{}'.format(len(self.target_raw),ft))
+            logging.info('Read {} target sentences'.format(len(self.target_raw)))
 
-        assert len(self.target_raw)==0 or len(self.source_raw) == len(self.target_raw)
+        assert len(self.target_raw)==0 or len(self.source_raw) == len(self.target_raw), 'len(source_raw)={} len(target_raw)={}'.format(len(self.source_raw),len(self.target_raw))
 
     def __len__(self):
         return len(self.source_raw)

@@ -10,18 +10,18 @@ class wer():
         hyps = copy.deepcopy(hyps)
         refs = copy.deepcopy(refs)
         assert len(refs) == len(hyps)
-        if self.onmttok is not None:
-            n_hyp_words = 0
-            for i,l in enumerate(hyps):
-                t = self.onmttok(l)
-                n_hyp_words += len(t)
-                hyps[i] = ' '.join(t)
 
-            n_ref_words = 0
-            for i,l in enumerate(refs):
-                t = self.onmttok(l)
-                n_ref_words += len(t)
-                refs[i] = ' '.join(t)
+        n_hyp_words = 0
+        for i,l in enumerate(hyps):
+            t = self.onmttok(l) if self.onmttok is not None else l.split()
+            n_hyp_words += len(t)
+            hyps[i] = ' '.join(t)
+
+        n_ref_words = 0
+        for i,l in enumerate(refs):
+            t = self.onmttok(l) if self.onmttok is not None else l.split()
+            n_ref_words += len(t)
+            refs[i] = ' '.join(t)
                 
         return 100.0 * jiwer.wer(refs, hyps), n_hyp_words, n_ref_words
         
