@@ -8,10 +8,10 @@ import argparse
 #import pyonmttok
 import numpy as np
 import edit_distance
-from wer import wer
-from Experiment import Experiment
-from FormatED import FormatWithEditDist
-from DataLoader import DataLoader
+from corrector.wer import wer
+from corrector.Experiment import Experiment
+from corrector.FormatED import FormatWithEditDist
+from noiser.DataLoader import DataLoader
 
 def set_seed(seed):
     torch.manual_seed(seed)

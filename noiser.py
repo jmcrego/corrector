@@ -9,10 +9,10 @@ import argparse
 import pyonmttok
 import numpy as np
 from collections import defaultdict
-from Misspell import Misspell
-from Spurious import Spurious
-from Replace import Replace
-from Tokenizer import Tokenizer, JOINER, Sentence, Word, PUNC, Error
+from noiser.Misspell import Misspell
+from noiser.Spurious import Spurious
+from noiser.Replace import Replace
+from noiser.Tokenizer import Tokenizer, Sentence, Word, Error, JOINER, PUNC
 
 class Dict2Class(object):
     def __init__(self, my_dict):
