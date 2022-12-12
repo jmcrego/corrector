@@ -1,3 +1,4 @@
+from noiser.DataLoader import DataLoader
 from noiser.Tokenizer import Tokenizer
 from noiser.Misspell import Misspell
 from noiser.Replace import Replace
