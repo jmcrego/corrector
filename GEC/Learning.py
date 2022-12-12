@@ -7,7 +7,7 @@ import numpy as np
 import torch
 import time
 import torch.optim as optim
-from model.GECor import save_checkpoint
+from GEC.GECor import save_checkpoint
 from collections import defaultdict
 
 try:
