@@ -9,11 +9,10 @@ import argparse
 import pyonmttok
 import numpy as np
 from collections import defaultdict
-from HFTokenizer import JOINER
 from Misspell import Misspell
 from Spurious import Spurious
-from Replacement import Replacement
-from HFTokenizer import HFTokenizer, Sentence, Word, PUNC, Error
+from Replace import Replace
+from Tokenizer import Tokenizer, JOINER, Sentence, Word, PUNC, Error
 
 class Dict2Class(object):
     def __init__(self, my_dict):
@@ -24,10 +23,10 @@ class Noiser():
     def __init__(self, cfg):
         self.cfg = cfg
         self.M = Misspell(Dict2Class(cfg.misspell), 'SUB:M')
-        self.G = Replacement(cfg.inflect, 'SUB:I')
-        self.H = Replacement(cfg.homophone, 'SUB:H')
+        self.G = Replace(cfg.inflect, 'SUB:I')
+        self.H = Replace(cfg.homophone, 'SUB:H')
         self.S = Spurious(cfg.spurious)
-        self.HFTokenizer = HFTokenizer(cfg.path, nofast=False)
+        self.Tokenizer = Tokenizer(cfg.path, nofast=False)
         self.noises_seen = {n:1 for n in self.cfg.noises.keys()} ### initially all noises appeared once
         self.n_noises2weights = {}
         self.total_sents_with_n_noises = [1] * (self.cfg.max_n+1)
@@ -66,13 +65,13 @@ class Noiser():
                     logging.info("{}\t{:.2f}%\t1-every-{:.1f}\t{}-noises".format(v-1,100.0*(v-1)/self.total_sents_with_noises,self.total_sentences/(v-1),k))
         
     def __call__(self, l):
-        self.t_ini, lids = self.HFTokenizer(l,p_prefix=self.cfg.p_prefix,p_lcfirst=self.cfg.p_lcfirst,spurious=self.S) #['C', "￭'￭", 'est', 'mon', 'premier', 'exemple', '￭.'] [[205], [3, 31], [259], [1911], [2761], [5300], [3, 5]]
-        self.t_ini_detok = self.HFTokenizer.detok(self.t_ini) ### self.t_ini_detok may be a prefix/lcfirst/trunc of l
+        self.t_ini, lids = self.Tokenizer(l,p_prefix=self.cfg.p_prefix,p_lcfirst=self.cfg.p_lcfirst,spurious=self.S) #['C', "￭'￭", 'est', 'mon', 'premier', 'exemple', '￭.'] [[205], [3, 31], [259], [1911], [2761], [5300], [3, 5]]
+        self.t_ini_detok = self.Tokenizer.detok(self.t_ini) ### self.t_ini_detok may be a prefix/lcfirst/trunc of l
         self.s = Sentence(self.t_ini,lids)
         self.total_sentences += 1
         self.total_tokens += len(self.s)
-        self.total_prefixed += 1 if self.HFTokenizer.is_prefix else 0
-        self.total_lcfirst += 1 if self.HFTokenizer.is_lcfirst else 0
+        self.total_prefixed += 1 if self.Tokenizer.is_prefix else 0
+        self.total_lcfirst += 1 if self.Tokenizer.is_lcfirst else 0
         add_n_noises = self.add_n_noises()
         curr_n_noises = 0
         #logging.debug('trying to inject {} noises'.format(add_n_noises))
@@ -120,16 +119,16 @@ class Noiser():
         self.total_noises += curr_n_noises
         self.total_sents_with_noises += 1 if curr_n_noises else 0
         self.t_end = self.s(txt=True)
-        self.t_end_detok = self.HFTokenizer.detok(self.t_end)
+        self.t_end_detok = self.Tokenizer.detok(self.t_end)
         ### some words in self.s (those noised) does not have ids. ids must be computed for the entire (noised) sentence
-        i, t2 = self.HFTokenizer.sub(' '.join(self.t_end).replace(JOINER,''))
-        i2 = self.HFTokenizer.sub2tok(t2,i)
+        i, t2 = self.Tokenizer.sub(' '.join(self.t_end).replace(JOINER,''))
+        i2 = self.Tokenizer.sub2tok(t2,i)
         assert len(i2) == len(self.t_end)
         for k in range(len(self.s)):
             if self.s[k].i is None:
                 self.s[k].i = i2[k] #logging.debug('assigning i2={} to token t2={} corresponding to {}'.format(i2[k], self.t_end[k], self.s[k]()))
-        #logging.debug('t_ini: {}'.format(self.HFTokenizer.onmt.detokenize(self.t_ini)))
-        #logging.debug('t_end: {}'.format(self.HFTokenizer.onmt.detokenize(self.t_end)))
+        #logging.debug('t_ini: {}'.format(self.Tokenizer.onmt.detokenize(self.t_ini)))
+        #logging.debug('t_end: {}'.format(self.Tokenizer.onmt.detokenize(self.t_end)))
         return self.s()
 
     def sort_noises(self):
