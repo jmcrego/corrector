@@ -163,8 +163,10 @@ if __name__ == "__main__":
     group_training = parser.add_argument_group("Training")
     group_training.add_argument("--trn_src", default=None, type=str, help="train (source) file")
     group_training.add_argument("--trn_tgt", default=None, type=str, help="train (target) file")
+    group_training.add_argument("--trn_st", default=None, type=str, help="train (source and target) file")
     group_training.add_argument("--val_src", default=None, type=str, help="valid (source) file")
     group_training.add_argument("--val_tgt", default=None, type=str, help="valid (target) file")
+    group_training.add_argument("--val_st", default=None, type=str, help="valid (source and target) file")
     group_training.add_argument("--epochs", default=1, type=int, help="number of learning epochs to run (1)")
     group_training.add_argument("--steps", default=1000000, type=int, help="number of training steps to run (1000000)")
     group_training.add_argument("--report_n", default=100, type=int, help="report every this number of steps (100)")
@@ -192,7 +194,7 @@ if __name__ == "__main__":
     group_inference.add_argument("--early_stopping", action='store_true', help="early stopping for inference")
     group_inference.add_argument("--diffs", action='store_true', help="output src/hyp and hyp/ref diffs using edit distance")
     args = parser.parse_args()
-    if args.trn_src is not None:
+    if args.trn_src is not None or args.trn_st is not None:
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None), filename=args.dir+'.log')
     else:
         logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO', None))
@@ -210,8 +212,21 @@ if __name__ == "__main__":
     ################
     ### Training ###
     ################
-    train_loader = DataLoader(args, exp.tokenizer, args.trn_src, args.trn_tgt) if args.trn_src is not None else None
-    valid_loader = DataLoader(args, exp.tokenizer, args.val_src, args.val_tgt) if args.val_src is not None else None
+    
+    if args.trn_st:
+        train_loader = DataLoader(args, exp.tokenizer, fsrctgt=args.trn_st)
+    elif args.trn_src:
+        train_loader = DataLoader(args, exp.tokenizer, fsrc=args.trn_src, ftgt=args.trn_tgt)
+    else:
+        train_loader = None
+        
+    if args.val_st:
+        valid_loader = DataLoader(args, exp.tokenizer, fsrctgt=args.val_st)
+    elif args.val_src:
+        valid_loader = DataLoader(args, exp.tokenizer, fsrc=args.val_src, ftgt=args.val_tgt)
+    else:
+        valid_loader = None
+
     if train_loader is not None and valid_loader is not None: 
         exp.build_optimizer()
         logging.info("Running learning...")

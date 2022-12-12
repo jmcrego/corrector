@@ -1,11 +1,14 @@
 {
+    "path": "t5-base",
     "inflect": "resources/Morphalou3.1_CSV.csv.inflect",
     "homophone": "resources/Morphalou3.1_CSV.csv.homophone",
     "spurious": "resources/Morphalou3.1_CSV.csv.spurious",
     "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 4, "consd": 25, "phone": 100},
-    "noises": {"inflect": 50, "homophone": 3, "misspell": 3, "punctuation":1, "hyphen_add": 1, "hyphen_del": 100, "case": 1, "space_add": 1, "space_del":1, "copy": 1, "swap": 1, "spurious": 1},
+    "noises": {"inflect": 50, "homophone": 5, "misspell": 5, "punctuation":1, "hyphen_add": 1, "hyphen_del": 100, "case": 1, "space_add": 1, "space_del":1, "copy": 1, "swap": 1, "spurious_add": 1, "spurious_del": 1},
     "max_r": 0.5,
     "max_n": 10,
+    "p_prefix": 0.05,
+    "p_lcfirst": 0.02,
     "seed": 23
 }
 

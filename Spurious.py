@@ -12,3 +12,6 @@ class Spurious():
         tok = random.choices(list(self.spurious.keys()), list(self.spurious.values()), k=1)[0]        
         return tok
 
+    def __contains__(self, s):
+        return s in self.spurious
+        

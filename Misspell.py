@@ -201,6 +201,10 @@ class Misspell():
         self.min_word_length = 2 #do not misspell if word is too small
         self.n_misspell = defaultdict(int)
         self.n = 0
+        self.seen = defaultdict(int)
+
+    def nseen(self, w):
+        return 1 if w not in self.seen else self.seen[w]
         
     def __call__(self, word):
         words, types, weights = [], [], []
@@ -211,83 +215,118 @@ class Misspell():
             
             ### delete char i
             if len(word) > 1:
-                weights.append(self.opts.delete)
                 types.append('MISSPELL:delete')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:]
+                weights.append(self.opts.delete/self.nseen(words[-1]))
 
             ### repeat char i
-            weights.append(self.opts.repeat)
             types.append('MISSPELL:repeat')
             words.append(word)
             words[-1] = words[-1][:i+1] + words[-1][i:]
+            weights.append(self.opts.repeat/self.nseen(words[-1]))
 
             ### swap chars i <=> i+1
             if i < len(word)-1:
                 c1 = word[i]
                 c2 = word[i+1]
-                weights.append(self.opts.swap)
                 types.append('MISSPELL:swap')
                 words.append(word)
                 words[-1] = words[-1][:i] + c2 + c1 + words[-1][i+2:]
+                weights.append(self.opts.swap/self.nseen(words[-1]))
 
             ### replace char i by close to it
             near_letter = change_keyboard(word[i])
             if near_letter is not None:
-                weights.append(self.opts.close)
                 types.append('MISSPELL:close')
                 words.append(word)
                 words[-1] = words[-1][:i] + near_letter + words[-1][i+1:]
+                weights.append(self.opts.close/self.nseen(words[-1]))
 
             ### replace char i if vowel by the same with diacritics
             new_letter = change_accent(word[i])
             if new_letter is not None:
-                weights.append(self.opts.diacritics)
                 types.append('MISSPELL:diacr')
                 words.append(word)
                 words[-1] = words[-1][:i] + new_letter + words[-1][i+1:]
+                weights.append(self.opts.diacritics/self.nseen(words[-1]))
 
             ### delete/add char i if doubled consonant
             if i>0 and i<len(word)-2 and word[i] == word[i+1] and word[i] in CONSONNES_DOUBLES:
-                weights.append(self.opts.consd)
                 types.append('MISSPELL:consd:del')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:] #char i is not added
+                weights.append(self.opts.consd/self.nseen(words[-1]))
 
             ### add double consonnant
             if i>0 and i<len(word)-1 and word[i] != word[i+1] and word[i] != word[i-1] and word[i] in CONSONNES_DOUBLES:
-                weights.append(self.opts.consd)
                 types.append('MISSPELL:consd:add')
                 words.append(word)
                 words[-1] = words[-1][:i+1] + words[-1][i:] #char i is added twice
+                weights.append(self.opts.consd/self.nseen(words[-1]))
+
+            ### phonetic replacements
 
             ### 'ph' -> 'f'
             if len(word)>i+1 and word[i] == 'p' and word[i+1] == 'h':
-                weights.append(self.opts.phone)
                 types.append('MISSPELL:phone:ph2f')
                 words.append(word)
                 words[-1] = words[-1][:i] + 'f' + words[-1][i+2:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
                 
-            ### 'h' -> 
+            ### 'h' -> -
             if word[i] == 'h' and not (i>0 and word[i-1] in 'CcPp'):
-                weights.append(self.opts.phone)
                 types.append('MISSPELL:phone:h2-')
                 words.append(word)
                 words[-1] = words[-1][:i] + words[-1][i+1:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
 
             ### '.+c[EI]' -> '.+ss[EI]' #vacances -> vacansses
             if i>0 and len(word)>i+1 and word[i] == 'c' and word[i+1].lower() in 'eèéi':
-                weights.append(self.opts.phone)
                 types.append('MISSPELL:phone:c2ss')
                 words.append(word)
                 words[-1] = words[-1][:i] + 'ss' + words[-1][i+1:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
 
             ### 'ç' -> 'ss' #leçon -> lesson
             if word[i] == 'ç':
-                weights.append(self.opts.phone)
                 types.append('MISSPELL:phone:ç2ss')
                 words.append(word)
                 words[-1] = words[-1][:i] + 'ss' + words[-1][i+1:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
+                
+            ### 'ei'[^l] -> 'e' 
+            if len(word)>i+1 and word[i] == 'e' and word[i+1] == 'i' and (len(word)<=i+2 or word[i+2] != 'l'):
+                types.append('MISSPELL:phone:ei2e')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'e' + words[-1][i+2:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
+                
+            ### 'au' -> 'o' | 'eau'
+            if len(word)>i+1 and word[i] == 'a' and word[i+1] == 'u':
+                types.append('MISSPELL:phone:au2o')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'o' + words[-1][i+2:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
+                #
+                if i>0 and word[i-1] != 'e':
+                    types.append('MISSPELL:phone:au2eau')
+                    words.append(word)
+                    words[-1] = words[-1][:i] + 'eau' + words[-1][i+2:]
+                    weights.append(self.opts.phone/self.nseen(words[-1]))
+                
+            ### 'eau' -> 'au' | 'o'
+            if len(word)>i+2 and word[i] == 'e' and word[i+1] == 'a' and word[i+2] == 'u':
+                types.append('MISSPELL:phone:eau2au')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'au' + words[-1][i+3:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
+                #
+                types.append('MISSPELL:phone:eau2o')
+                words.append(word)
+                words[-1] = words[-1][:i] + 'o' + words[-1][i+3:]
+                weights.append(self.opts.phone/self.nseen(words[-1]))
+
                 
         if len(words) == 0:
             return '', ''
@@ -296,6 +335,8 @@ class Misspell():
         i = random.choices([i for i in range(len(words))],weights)[0]
         self.n += 1
         self.n_misspell[types[i]] += 1
+        self.seen[words[i]] += 1
+        logging.debug("{}\t{}\t{}".format(types[i],word,words[i]))
         return words[i], self.name #types[i]
 
     def stats(self):

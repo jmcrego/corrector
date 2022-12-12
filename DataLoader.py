@@ -7,7 +7,7 @@ from torch.nn.utils.rnn import pad_sequence
 
 class DataLoader():
 
-    def __init__(self, args, tokenizer, fsrc, ftgt):
+    def __init__(self, args, tokenizer, fsrc=None, ftgt=None, fsrctgt=None):
         self.args = args
         self.tokenizer = tokenizer
         self.source_raw = []
@@ -32,6 +32,19 @@ class DataLoader():
                 logging.info('{}\t{}'.format(len(self.target_raw),ft))
             logging.info('Read {} target sentences'.format(len(self.target_raw)))
 
+        if fsrctgt is not None:
+            fsrctgt = fsrctgt.split(',')
+            for fst in fsrctgt:
+                lsrc = []
+                ltgt = []
+                with open(fst,'r') as fd:
+                    for l in fd:
+                        lt, ls, _ = l.rstrip().split('\t') #first correct is correct (target), second col is noisy (source)
+                        self.source_raw.append(args.prefix+ls)
+                        self.target_raw.append(lt)
+                logging.info('{}\t{}'.format(len(self.source_raw),fst))
+            logging.info('Read {} source/target sentences'.format(len(self.source_raw)))
+            
         assert len(self.target_raw)==0 or len(self.source_raw) == len(self.target_raw), 'len(source_raw)={} len(target_raw)={}'.format(len(self.source_raw),len(self.target_raw))
 
     def __len__(self):

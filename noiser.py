@@ -8,11 +8,12 @@ import logging
 import argparse
 import pyonmttok
 import numpy as np
-from Sentence import Sentence, Word, NONE, PUNC, JOINER
+from collections import defaultdict
+from HFTokenizer import JOINER
 from Misspell import Misspell
 from Spurious import Spurious
 from Replacement import Replacement
-from collections import defaultdict
+from HFTokenizer import HFTokenizer, Sentence, Word, PUNC, Error
 
 class Dict2Class(object):
     def __init__(self, my_dict):
@@ -26,14 +27,17 @@ class Noiser():
         self.G = Replacement(cfg.inflect, 'SUB:I')
         self.H = Replacement(cfg.homophone, 'SUB:H')
         self.S = Spurious(cfg.spurious)
-        self.tokenizer = pyonmttok.Tokenizer("aggressive", joiner_annotate=True, joiner=JOINER)
+        self.HFTokenizer = HFTokenizer(cfg.path, nofast=False)
         self.noises_seen = {n:1 for n in self.cfg.noises.keys()} ### initially all noises appeared once
         self.n_noises2weights = {}
         self.total_sents_with_n_noises = [1] * (self.cfg.max_n+1)
+        self.total_sents_with_n_noises[0] += 10 #to avoid selecting 0 the first 10 sentences
         self.total_sents_with_noises = 0
         self.total_sentences = 0
         self.total_noises = 0
         self.total_tokens = 0
+        self.total_prefixed = 0
+        self.total_lcfirst = 0
 
     def stats(self, tictoc):
         logging.info('{:.1f} seconds'.format(tictoc))
@@ -44,7 +48,10 @@ class Noiser():
         logging.info('{:.1f} tokens/sentence'.format(self.total_tokens/self.total_sentences))
         logging.info('{:.1f} noises/sentence'.format(self.total_noises/self.total_sentences))
         logging.info('{} ({:.2f}%) noisy sentences'.format(self.total_sents_with_noises,100.0*self.total_sents_with_noises/self.total_sentences))
-        logging.info('{} ({:.2f}%) noisy tokens'.format(self.total_noises,100.0*self.total_noises/self.total_tokens))
+        logging.info('{} ({:.2f}%) prefixed sentences'.format(self.total_prefixed,100.0*self.total_prefixed/self.total_sentences))
+        logging.info('{} ({:.2f}%) lcfirst sentences'.format(self.total_lcfirst,100.0*self.total_lcfirst/self.total_sentences))
+        if self.total_tokens:
+            logging.info('{} ({:.2f}%) noisy tokens'.format(self.total_noises,100.0*self.total_noises/self.total_tokens))
         if self.total_noises:
             logging.info('*** Noises ***')
             for k, v in sorted(self.noises_seen.items(),key=lambda item: item[1], reverse=True):
@@ -53,39 +60,29 @@ class Noiser():
             logging.info('*** Misspells ***')
             self.M.stats()
             logging.info('*** Sentences with n-noises ***')
+            self.total_sents_with_n_noises[0] -= 10 ### to counterbalance the addition in constructor
             for k, v in enumerate(self.total_sents_with_n_noises):
                 if v>1:
                     logging.info("{}\t{:.2f}%\t1-every-{:.1f}\t{}-noises".format(v-1,100.0*(v-1)/self.total_sents_with_noises,self.total_sentences/(v-1),k))
         
-        
-    def sort_noises(self):
-        next_noises = {}
-        for noise,tokens_per_noise in self.cfg.noises.items():
-            next_noises[noise] = 1.0 * self.cfg.noises[noise] / self.noises_seen[noise]
-        sorted_noises = sorted(next_noises.items(), key=lambda item:item[1], reverse=True)
-        return sorted_noises#[0:5]
-        
-    def add_n_noises(self):
-        max_n = min(int(len(self.s)*self.cfg.max_r), self.cfg.max_n)
-        W = self.total_sents_with_n_noises[0:max_n+1] #weight of n noises is (inversely) proportional to its frequency
-        add_n = np.argsort(W)
-        return add_n[0]
-        
     def __call__(self, l):
-        l = l.rstrip()
-        self.s = Sentence(self.tokenizer(l))
+        self.t_ini, lids = self.HFTokenizer(l,p_prefix=self.cfg.p_prefix,p_lcfirst=self.cfg.p_lcfirst,spurious=self.S) #['C', "￭'￭", 'est', 'mon', 'premier', 'exemple', '￭.'] [[205], [3, 31], [259], [1911], [2761], [5300], [3, 5]]
+        self.t_ini_detok = self.HFTokenizer.detok(self.t_ini) ### self.t_ini_detok may be a prefix/lcfirst/trunc of l
+        self.s = Sentence(self.t_ini,lids)
         self.total_sentences += 1
         self.total_tokens += len(self.s)
-        curr_n_noises = 0
+        self.total_prefixed += 1 if self.HFTokenizer.is_prefix else 0
+        self.total_lcfirst += 1 if self.HFTokenizer.is_lcfirst else 0
         add_n_noises = self.add_n_noises()
+        curr_n_noises = 0
+        #logging.debug('trying to inject {} noises'.format(add_n_noises))
         for _ in range(add_n_noises): ### try to add n noises in this sentence
             idx = self.s.get_random_unnoised_idx() #get an unnoised token
+            #logging.debug('trying to noise idx {} {}'.format(idx,self.s.words[idx]()))
             if idx == None:
                 break
-            #logging.debug("random_unnoised_idx: {}".format(idx))
             for next_noise, _ in self.sort_noises(): ### try all noises sorted by frequency (lower first)
-                #logging.debug("next_noise: {}".format(next_noise))
-                res = False
+                #logging.debug('trying to inject noise {}'.format(next_noise))
                 if next_noise == 'inflect':
                     res = self.replace(idx,self.G)
                 elif next_noise == 'homophone':
@@ -108,184 +105,238 @@ class Noiser():
                     res = self.hyphen_del(idx)
                 elif next_noise == 'punctuation':
                     res = self.punctuation(idx)
-                elif next_noise == 'spurious':
-                    res = self.spurious(idx,self.S)
+                elif next_noise == 'spurious_add':
+                    res = self.spurious_add(idx,self.S)
+                elif next_noise == 'spurious_del':
+                    res = self.spurious_del(idx,self.S)
+                else:
+                    res = False
                 if res:
                     self.noises_seen[next_noise] += 1
                     curr_n_noises += 1
                     break
-        logging.debug('added {} out of {} noises'.format(curr_n_noises,add_n_noises))
+        #logging.debug('added {} out of {} noises'.format(curr_n_noises,add_n_noises))
         self.total_sents_with_n_noises[curr_n_noises] += 1
         self.total_noises += curr_n_noises
         self.total_sents_with_noises += 1 if curr_n_noises else 0
-        return self.tokenizer.detokenize(self.s()), self.s(triplet=True)
+        self.t_end = self.s(txt=True)
+        self.t_end_detok = self.HFTokenizer.detok(self.t_end)
+        ### some words in self.s (those noised) does not have ids. ids must be computed for the entire (noised) sentence
+        i, t2 = self.HFTokenizer.sub(' '.join(self.t_end).replace(JOINER,''))
+        i2 = self.HFTokenizer.sub2tok(t2,i)
+        assert len(i2) == len(self.t_end)
+        for k in range(len(self.s)):
+            if self.s[k].i is None:
+                self.s[k].i = i2[k] #logging.debug('assigning i2={} to token t2={} corresponding to {}'.format(i2[k], self.t_end[k], self.s[k]()))
+        #logging.debug('t_ini: {}'.format(self.HFTokenizer.onmt.detokenize(self.t_ini)))
+        #logging.debug('t_end: {}'.format(self.HFTokenizer.onmt.detokenize(self.t_end)))
+        return self.s()
 
+    def sort_noises(self):
+        next_noises = {}
+        for noise,tokens_per_noise in self.cfg.noises.items():
+            next_noises[noise] = 1.0 * self.cfg.noises[noise] / self.noises_seen[noise]
+        sorted_noises = sorted(next_noises.items(), key=lambda item:item[1], reverse=True)
+        return sorted_noises#[0:5]
+        
+    def add_n_noises(self):
+        max_n = min(int(len(self.s)*self.cfg.max_r), self.cfg.max_n)
+        W = self.total_sents_with_n_noises[0:max_n+1] #weight of n noises is (inversely) proportional to its frequency
+        add_n = np.argsort(W)
+        return add_n[0]
+
+    ##########################################################################################
+    ##########################################################################################
+    ##########################################################################################
+
+    def filter_if(self, idx, has_error=False, not_word=False, not_punc=False, not_word_or_punc=False, starts_with_joiner=False, ends_with_joiner=False, not_hyphen=False, min_len=0):
+        if idx < 0 or idx >= len(self.s.words):
+            return True
+        if min_len and len(self.s.words[idx].t) < min_len:
+            return True
+        if has_error and self.s.words[idx].e is not None:
+            return True
+        if not_word and not self.s.words[idx].is_word():
+            return True
+        if not_punc and not self.s.words[idx].is_punc():
+            return True
+        if not_hyphen and not self.s.words[idx].t == '-':
+            return True
+        if not_word_or_punc and not self.s.words[idx].is_punc() and not self.s.words[idx].is_word():
+            return True
+        if starts_with_joiner and idx>=0 and idx<len(self.s.words) and self.s.words[idx].starts_with_joiner:
+            return True
+        if ends_with_joiner and idx>=0 and idx<len(self.s.words) and self.s.words[idx].ends_with_joiner:
+            return True
+        return False
+    
     def misspell(self, idx): #deux
-        w = self.s.words[idx]
-        if w.is_noisy or not w.is_word():
+        if self.filter_if(idx, has_error=True, not_word=True):
             return False
-        w_txt = w.txt[0]
-        txt, err = self.M(w_txt)
+        w = self.s.words[idx]
+        txt, err = self.M(w.t)
         if txt == '' or err == '':
             return False
-        self.s.words[idx] = Word([txt],[err],[w_txt],True) #deuc|SUB|deux
-        logging.debug('NOISE={}\t{}\t{}\t{}'.format(err,self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        self.s.words[idx] = Word(t=txt, e=Error(t=w.t, i=w.i, e=err)) #deuc|[int]|SUB:M
+        logging.debug('NOISE misspell\t{}'.format(self.s.words[idx]())) 
         return True
 
     def replace(self, idx, R): #avais
-        w = self.s.words[idx]
-        if w.is_noisy or not w.is_word():
+        if self.filter_if(idx, has_error=True, not_word=True):
             return False
-        w_txt = w.txt[0]
-        txt, err = R(w_txt)
+        w = self.s.words[idx]
+        txt, err = R(w.t)
         if txt == '' or err == '':
             return False
-        self.s.words[idx] = Word([txt],[err],[w_txt],True) #avait|SUB|avais
-        logging.debug('NOISE={}\t{}\t{}\t{}'.format(err,self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        self.s.words[idx] = Word(t=txt, e=Error(t=w.t, i=w.i, e=err)) #avait|[int]|SUB:H
+        logging.debug('NOISE replace\t{}'.format(self.s.words[idx]()))
         return True
 
-    def punctuation(self, idx): #￭, (may have joiner)
+    def punctuation(self, idx): #,
+        if self.filter_if(idx, has_error=True, not_punc=True):
+            return False
         err = 'SUB:P'
         w = self.s.words[idx]
-        if w.is_noisy or not w.is_punc(): #one single punctuation with (or without) joiners
-            return False
-        w_txt = w.txt[0]
-        p = w_txt[1] if w_txt[0] == JOINER else w_txt[0]
+        p = w.t[0]
         other_p = [x for x in PUNC if x!=p]
         random.shuffle(other_p)
-        txt = (JOINER if w_txt[0] == JOINER else '') + other_p[0] + (JOINER if w_txt[-1] == JOINER else '')
-        self.s.words[idx] = Word([txt], [err], [w_txt], True) #￭.|SUB|￭,
-        logging.debug('NOISE=PUNCTUATION\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        txt = (JOINER if w.starts_with_joiner else '') + other_p[0] + (JOINER if w.ends_with_joiner else '')
+        self.s.words[idx] = Word(t=txt, e=Error(t=w.t, i=w.i, e=err)) #￭.|[int]|SUB:P
+        logging.debug('NOISE punctuation\t{}'.format(self.s.words[idx]()))
         return True
     
     def copy(self, idx): #dans
-        w = self.s.words[idx]
-        if w.is_noisy or not w.is_word():
+        if self.filter_if(idx, has_error=True, not_word_or_punc=True) or self.filter_if(idx-1, ends_with_joiner=True) or self.filter_if(idx+1,starts_with_joiner=True):
             return False
-        w_txt = w.txt[0]
-        self.s.words[idx] = Word([w_txt,w_txt], [NONE,'DEL'], [NONE,NONE], True) #dans|NONE|NONE dans|DEL|NONE
-        logging.debug('NOISE=COPY\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        err = 'DEL'
+        w = self.s.words[idx]
+        txt = (JOINER if w.starts_with_joiner else '') + w.t + (JOINER if w.ends_with_joiner else '')
+        self.s.words[idx].e = Error(t=None, i=None, e=None)
+        self.s.words.insert(idx+1, Word(txt, i=w.i, e=Error(t=None, i=None, e=err))) #None|None|DEL
+        logging.debug('NOISE copy\t{}'.format(self.s.words[idx+1]()))
         return True 
 
     def case(self, idx):
-        w = self.s.words[idx]
-        if w.is_noisy or not w.is_word():
+        if self.filter_if(idx, has_error=True, not_word=True):
             return False
-        w_txt = w.txt[0]
-        if w_txt.isupper(): ################################################## IBM
+        w = self.s.words[idx]
+        if w.t.isupper(): ################################################## IBM
             err = 'CASE:X'
-            if len(w_txt) > 1 and random.random() < 0.5:
-                txt = w_txt[0]+w_txt[1:].lower() #Ibm
+            if len(w.t) > 1 and random.random() < 0.5:
+                txt = w.t[0]+w.t[1:].lower()   #Ibm
             else:
-                txt = w_txt.lower()              #ibm
-        elif w_txt.islower(): ################################################ ibm
+                txt = w.t.lower()              #ibm
+        elif w.t.islower(): ################################################ ibm
             err = 'CASE:x'
-            if len(w_txt) > 1 and random.random() < 0.5:
-                txt = w_txt[0].upper()+w_txt[1:] #Ibm
+            if len(w.t) > 1 and random.random() < 0.5:
+                txt = w.t[0].upper()+w.t[1:]   #Ibm
             else:
-                txt = w_txt.upper()              #IBM
-        elif len(w_txt)>1 and w_txt[0].isupper() and w_txt[1:].islower(): #### Ibm
+                txt = w.t.upper()              #IBM
+        elif len(w.t)>1 and w.t[0].isupper() and w.t[1:].islower(): #### Ibm
             err = 'CASE:Xx'
             if random.random() < 0.5:
-                txt = w_txt.upper()              #IBM
+                txt = w.t.upper()              #IBM
             else:
-                txt = w_txt.lower()              #ibm
+                txt = w.t.lower()              #ibm
         else: ################################################################ IbM
             return False
-        self.s.words[idx] = Word([txt], [err], [w_txt], True) #ibm|SUB|IBM
-        logging.debug('NOISE={}\t{}\t{}\t{}'.format(err,self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        self.s.words[idx] = Word(t=txt, e=Error(t=None, i=None, e=err)) #None|None|CASE:x
+        logging.debug('NOISE case\t{}'.format(self.s.words[idx]()))
         return True
     
     def space_add(self, idx): #gestion
+        minlen = 2
+        if self.filter_if(idx, has_error=True, not_word=True, min_len=minlen*2):
+            return False
+        err = 'JOIN'
         w = self.s.words[idx]
-        if w.is_noisy or not w.is_word():
-            return False
-        w_txt = w.txt[0]
-        minlen = 3
-        if len(w_txt) < 2*minlen: #minimum length of resulting splitted tokens
-            return False
-        k = random.randint(minlen,len(w_txt)-minlen)
-        wprev = w_txt[:k]
-        wpost = w_txt[k:]
-        self.s.words[idx] = Word([wprev,wpost], ['JOIN',NONE], [NONE,NONE], True) ### gest|JOIN|NONE ion|NONE|NONE
-        logging.debug('NOISE=SPACE:ADD\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        w_t = w.t
+        k = random.randint(minlen,len(w_t)-minlen)
+        wprev = w_t[:k]
+        wpost = w_t[k:]
+        self.s.words.pop(idx)
+        self.s.words.insert(idx, Word(t=wpost, e=Error(t=None, i=None, e=None))) #ion  None|None|None
+        self.s.words.insert(idx, Word(t=wprev, e=Error(t=None, i=None, e=err))) #gest  None|None|JOIN
+        logging.debug('NOISE space_add\t{} {}'.format(self.s.words[idx](), self.s.words[idx+1]()))
         return True
 
     def space_del(self, idx): #mon ami
-        if idx >= len(self.s.words)-1:
+        if self.filter_if(idx, has_error=True, not_word=True) or self.filter_if(idx+1, has_error=True, not_word=True):
             return False
+        err = 'DIV'
         w1, w2 = self.s.words[idx], self.s.words[idx+1]
-        if w1.is_noisy or not w1.is_word():
-            return False
-        if w2.is_noisy or not w2.is_word():
-            return False
-        w1_txt = w1.txt[0]
-        w2_txt = w2.txt[0]
-        self.s.words[idx] = Word([w1_txt+w2_txt], ['DIV'], [w1_txt], True) ### monami|DIV|mon
-        self.s.words.pop(idx+1) #w2 must be deleted from list of words
-        logging.debug('NOISE=SPACE:DEL\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        w1_t = w1.t
+        w1_i = w1.i
+        w2_t = w2.t
+        self.s.words.pop(idx) #w1 deleted
+        self.s.words[idx] = Word(t=w1_t+w2_t, e=Error(t=w1_t, i=w1_i, e=err)) ### monami|DIV|mon
+        logging.debug('NOISE space_del\t{}'.format(self.s.words[idx]()))
         return True 
 
     def hyphen_del(self, idx): #anti - douleur
-        if idx >= len(self.s.words)-2:
+        if self.filter_if(idx, has_error=True, not_word=True) or self.filter_if(idx+1, has_error=True, not_hyphen=True) or self.filter_if(idx+2, has_error=True, not_word=True):
             return False
+        err = 'ADD'
         w1, w2, w3 = self.s.words[idx], self.s.words[idx+1], self.s.words[idx+2]
-        if w1.is_noisy or not w1.is_word():
-            return False
-        if w2.is_noisy or w2.txt[0] != JOINER+'-'+JOINER:
-            return False
-        if w3.is_noisy or not w3.is_word():
-            return False
-        w1_txt = w1.txt[0]
-        w2_txt = w2.txt[0]
-        w3_txt = w3.txt[0]
-        self.s.words[idx] = Word([w1_txt,w3_txt], ['ADD',NONE], [JOINER+'-'+JOINER,NONE], True) ### anti|ADD|- douleur|NONE|NONE
-        self.s.words.pop(idx+1) #w2 must be deleted from list of words
-        self.s.words.pop(idx+1) #w3 must be deleted from list of words
-        logging.debug('NOISE=HYPHEN:DEL\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        w2_t = w2.t #-
+        w2_i = w2.i 
+        self.s.words[idx].e = Error(t=w2_t, i=w2_i, e=err) ### anti   -|[int]|ADD
+        self.s.words.pop(idx+1) #w2 is deleted
+        self.s.words[idx+1].e = Error(t=None, i=None, e=None) ### douleur   None|None|None
+        logging.debug('NOISE hyphen_del\t{}\t{}'.format(self.s.words[idx](),self.s.words[idx+1]()))
         return True
 
     def hyphen_add(self, idx): #grands magasins
-        if idx >= len(self.s.words)-1:
+        minlen = 4
+        if self.filter_if(idx, has_error=True, not_word=True, min_len=minlen) or self.filter_if(idx+1, has_error=True, not_word=True, min_len=minlen):
             return False
-        w1, w2 = self.s.words[idx], self.s.words[idx+1]
-        if w1.is_noisy or not w1.is_word():
-            return False
-        if w2.is_noisy or not w2.is_word():
-            return False
-        w1_txt = w1.txt[0]
-        w2_txt = w2.txt[0]
-        min_words_len = 4
-        if len(w1_txt) < min_words_len or len(w2_txt) < min_words_len:
-            return False
-        self.s.words[idx] = Word([w1_txt, JOINER+'-'+JOINER, w2_txt], [NONE,'DEL',NONE], [NONE,NONE,NONE], True) ### grands|KEEP|NONE #-#|DEL|NONE magasins|KEEP|NONE
-        self.s.words.pop(idx+1) #w2 must be deleted from list of words
-        logging.debug('NOISE=HYPHEN:ADD\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        err = 'DEL'
+        self.s.words[idx].e = Error(t=None, i=None, e=None)
+        self.s.words[idx+1].e = Error(t=None, i=None, e=None)
+        self.s.words.insert(idx+1, Word(t=JOINER+'-'+JOINER,  e=Error(t=None, i=None, e=err)))
+        logging.debug('NOISE hyphen_add\t{}\t{}\t{}'.format(self.s.words[idx](),self.s.words[idx+1](),self.s.words[idx+2]()))
         return True
 
     def swap(self, idx):
-        if idx < 0 or idx >= len(self.s.words)-1:
+        if self.filter_if(idx, has_error=True, not_word=True) or self.filter_if(idx+1, has_error=True, not_word=True) or self.filter_if(idx-1,ends_with_joiner=True) or self.filter_if(idx+2,starts_with_joiner=True):
+            #cannot swap first/last tokens
+            return False
+        err = 'SWAP'
+        if idx >= len(self.s.words)-1:
             return False
         w1, w2 = self.s.words[idx], self.s.words[idx+1]
-        if w1.is_noisy or not w1.is_word():
-            return False
-        if w2.is_noisy or not w2.is_word():
-            return False
-        w1_txt = w1.txt[0]
-        w2_txt = w2.txt[0]
-        self.s.words[idx] = Word([w2_txt, w1_txt], ['SWAP', NONE], [NONE, NONE], True)
-        self.s.words.pop(idx+1) #w2 must be deleted from list of words
-        logging.debug('NOISE=SWAP\t{}\t{}\t{}'.format(self.s.words[idx].txt,self.s.words[idx].error_type,self.s.words[idx].word_to_predict))
+        w1_t = w1.t
+        w1_i = w1.i
+        w2_t = w2.t
+        w2_i = w2.i
+        self.s.words[idx]   = Word(t=w2_t, i=w2_i, e=Error(t=None, i=None, e=err))
+        self.s.words[idx+1] = Word(t=w1_t, i=w1_i, e=Error(t=None, i=None, e=None))
+        logging.debug('NOISE swap\t{}\t{}'.format(self.s.words[idx](), self.s.words[idx+1]()))
         return True
 
-    def spurious(self, idx, S): #add a word after idx
-        w = self.s.words[idx]
-        if w.is_noisy:
+    def spurious_add(self, idx, S):
+        if self.filter_if(idx, has_error=True, not_word=True) or self.filter_if(idx+1, starts_with_joiner=True):
+            #cannot add after last token
             return False
-        w_txt = S()
-        w = Word([w_txt], ['DEL'], [NONE], True)
-        self.s.words.insert(idx+1,w)
-        logging.debug('NOISE=SPURIOUS\t{}\t{}\t{}'.format(self.s.words[idx+1].txt,self.s.words[idx+1].error_type,self.s.words[idx+1].word_to_predict))
+        err = 'DEL'
+        w = self.s.words[idx]
+        txt = S() #get an spurious word
+        self.s.words.insert(idx+1,Word(t=txt, e=Error(t=None, i=None, e=err)))
+        logging.debug('NOISE spurious_add\t{}'.format(self.s.words[idx+1]()))
+        return True
+        
+    def spurious_del(self, idx, S):
+        if self.filter_if(idx, has_error=True, not_word=True) or self.filter_if(idx+1, has_error=True, not_word=True) or self.filter_if(idx-1, ends_with_joiner=True) or self.filter_if(idx+1, starts_with_joiner=True) :
+            return False
+        err = 'ADD'
+        w2 = self.s.words[idx+1]
+        w2_t = w2.t
+        w2_i = w2.i
+        if w2_t not in S: #only delete spurious words
+            return False
+        self.s.words.pop(idx+1) #w2 is deleted
+        self.s.words[idx].e = Error(t=w2_t, i=w2_i, e=err) ### w2|[int]|ADD
+        logging.debug('NOISE spurious_del\t{}'.format(self.s.words[idx]()))
         return True
     
 ###################################################################################################
@@ -293,35 +344,24 @@ class Noiser():
 ###################################################################################################
 
 if __name__ == '__main__':
-    example = {"inflect": "resources/Morphalou3.1_CSV.csv.inflect", "homophone": "resources/Morphalou3.1_CSV.csv.homophone", "spurious": "resources/Morphalou3.1_CSV.csv.spurious", "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 10, "consd": 100, "phone": 100}, "noises": {"inflect": 50, "homophone": 50, "punctuation": 1000, "hyphen_add": 100, "hyphen_del": 10, "misspell": 100, "case": 100, "space_add": 100, "space_del": 100, "copy": 1000, "swap": 200, "spurious": 1000}, "max_r": 0.5, "max_n": 10, "seed": 23}
+    example = {"inflect": "resources/Morphalou3.1_CSV.csv.inflect", "homophone": "resources/Morphalou3.1_CSV.csv.homophone", "spurious": "resources/Morphalou3.1_CSV.csv.spurious", "misspell": {"delete": 1, "repeat": 1, "close": 1, "swap": 1, "diacritics": 4, "consd": 25, "phone": 100}, "noises": {"inflect": 50, "homophone": 2, "punctuation": 2, "hyphen_add": 1, "hyphen_del": 100, "misspell": 1, "case": 1, "space_add": 1, "space_del": 1, "copy": 1, "swap": 1, "spurious_add": 1, "spurious_del": 1}, "max_r": 0.5, "max_n": 10, "seed": 23}
     parser = argparse.ArgumentParser(description="Tool to noise clean text following a noiser configuration file. Example: {}".format(example))
     parser.add_argument('config', type=str, help='noiser configuration file')
-    parser.add_argument('-o', type=str, default=None, help='output prefix file')
+    parser.add_argument('--seed', type=int, default=0, help='seed for randomness (0)')
     parser.add_argument("--debug", action='store_true', help="logging level=DEBUG (INFO)")
     args = parser.parse_args()
 
-    logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO' if not args.debug else 'DEBUG', None), filename=args.o+'_log' if args.o is not None else None, filemode = 'w')
+    logging.basicConfig(format='[%(asctime)s.%(msecs)03d] %(levelname)s %(message)s', datefmt='%Y-%m-%d_%H:%M:%S', level=getattr(logging, 'INFO' if not args.debug else 'DEBUG', None), filename=None, filemode = 'w')
     with open(args.config,'r') as fd:
         config = json.load(fd)
+    if args.seed != 0:
+        config['seed'] = args.seed
     random.seed(config['seed'])
 
-    if args.o is not None:
-        fd_snt = open(args.o+'_snt', 'w')
-        fd_tok = open(args.o+'_tok', 'w')
-        
     tic = time.time()
     n = Noiser(Dict2Class(config))
     for l in sys.stdin:
-        noised, triplets = n(l)
-        if args.o is not None:
-            fd_snt.write("{}\n".format(noised))
-            fd_tok.write("{}\n".format(triplets))
-        else:
-            print("{}\t{}".format(noised,triplets))
+        noisy_tok = n(l.rstrip())
+        print("{}\t{}\t{}".format(n.t_ini_detok, n.t_end_detok, noisy_tok))
     toc = time.time()
-
-    if args.o is not None:
-        fd_snt.close()
-        fd_tok.close()
-        
     n.stats(toc-tic)

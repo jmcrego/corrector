@@ -79,11 +79,7 @@ class Experiment():
                                eps=self.args.eps,
                                weight_decay=self.args.wdecay)
         logging.info('building polynomial decay with warmup scheduler...')
-        lr_scheduler = get_polynomial_decay_schedule_with_warmup(self.optimizer,
-                                                                 num_warmup_steps=self.args.warmup,
-                                                                 num_training_steps=self.args.steps,
-                                                                 power=self.args.power,
-                                                                 lr_end=self.args.lr_end)
+        lr_scheduler = get_polynomial_decay_schedule_with_warmup(self.optimizer, num_warmup_steps=self.args.warmup, num_training_steps=self.args.steps, power=self.args.power, lr_end=self.args.lr_end)
         self.scheduler = lr_scheduler
 
     def step(self):
@@ -96,14 +92,10 @@ class Experiment():
         #self.model.save_pretrained(self.args.dir + '/' + file_name) #save model
                 
     def __call__(self, input_ids, attention_mask, labels):
-        return self.model(input_ids=input_ids,
-                          attention_mask=attention_mask,
-                          labels=labels)
+        return self.model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
     
     def decode(self, ids):
-        return self.tokenizer.decode(ids,
-                                     skip_special_tokens=True,
-                                     clean_up_tokenization_spaces=True)
+        return self.tokenizer.decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
 
     def generate(self, input_ids, attention_mask, is_inference=False):
         forced_bos_token_id = None
