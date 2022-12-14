@@ -6,13 +6,11 @@ import logging
 import torch
 import argparse
 import torch.optim as optim
+from transformers import T5EncoderModel, T5Tokenizer
 from GEC.GECor import GECor, load_or_create_checkpoint, load_checkpoint, save_checkpoint, CE2
 from GEC.Learning import Learning
+from GEC.Dataset import Dataset
 from GEC.Vocab import Vocab
-#from model.Dataset import Dataset
-#from utils.FlaubertTok import FlaubertTok
-#from utils.Utils import create_logger, MAX_IDS_LEN
-#from transformers import FlaubertModel, FlaubertTokenizer
 
 ######################################################################
 ### MAIN #############################################################
@@ -22,21 +20,21 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('model', help='Model file')
-    parser.add_argument('train', help='Training file')
-    parser.add_argument('valid', help='Validation file')
     
+    parser.add_argument('--train', help='Training file (required)', required=True)
+    parser.add_argument('--valid', help='Validation file')
     parser.add_argument('--cuda', action='store_true', help='Use cuda device instead of cpu')
     parser.add_argument('--debug', action='store_true', help='Debug mode')
     parser.add_argument('--seed', type=int, default=0, help='Seed for randomness (0)')
     
     group_network = parser.add_argument_group("Network")
     group_network.add_argument('--err_voc', type=str, default=None, help='Error vocabulary (required)', required=True)
-    group_network.add_argument('--n_subtok', type=int, default=5,    help='Number of correction subtokens (5)')
+    group_network.add_argument('--n_subtok', type=int, default=10,    help='Number of correction subtokens (10)')
     group_network.add_argument('--merge', type=str, default="max",help='Merge subtokens: first, last, max, avg, sum (max)')
     
     group_optim = parser.add_argument_group("Optim")
     group_optim.add_argument('--lr', type=float, default=0.00001, help='Learning Rate (0.00001)')
-    group_optim.add_argument('--beta', type=float, default=1.0, help='Beta for CE2 loss (1.0)')
+    group_optim.add_argument('--beta', type=float, default=1.0, help='Beta for CE2 loss, l = l_err + β * l_cor (1.0)')
     group_optim.add_argument('--clip', type=float, default=0.0, help='Clip gradient norm of parameters (0.0)')
     group_optim.add_argument('--ls', type=float, default=0.1, help='Label smoothing value (0.1)')
     group_optim.add_argument('--batch_sz', type=int, default=4096, help='Batch size (4096)')
@@ -59,33 +57,27 @@ if __name__ == '__main__':
         random.seed(args.seed)
         torch.manual_seed(args.seed)
     logging.info("Options = {}".format(args.__dict__))
-    sys.exit()
     
     tic = time.time()    
     ########################
     ### load model/optim ###
     ########################
-    err = Vocab(args.errors)
- #   flauberttok = FlaubertTok(max_ids_len=MAX_IDS_LEN)
+    path = 't5-small'
+    t5mod = T5EncoderModel.from_pretrained(path)
+    t5tok = T5Tokenizer.from_pretrained(path, model_max_length=t5mod.config.n_positions)
+    err = Vocab(args.err_voc)
     device = torch.device('cuda' if args.cuda and torch.cuda.is_available() else 'cpu')
-    model = GECor(err, encoder_name="flaubert/flaubert_base_cased", aggregation=args.aggreg, n_subtokens=args.n_subt).to(device)
+    model = GECor(t5mod, err, args.n_subtok, args.merge).to(device)
     optim = optim.Adam(model.parameters(), lr=args.lr)
     last_step, model, optim = load_or_create_checkpoint(args.model, model, optim, device)
-    
-    ############################
-    ### build scheduler/loss ###
-    ############################
-    if args.loss == 'CE2':
-        criter = CE2(args.ls,args.beta).to(device)
-    else:
-        logging.error('Invalid --loss option')
+    criter = CE2(args.ls,args.beta).to(device)
 
     #############
     ### learn ###
     #############
-#    validset = Dataset(args.valid, err, cor, lin, sha, flauberttok, args) if args.valid is not None else None
-#    trainset = Dataset(args.train, err, cor, lin, sha, flauberttok, args)
-#    learning = Learning(model, optim, criter, last_step, trainset, validset, err, cor, lin, sha, args, device)
+    validset = Dataset(args.valid, err, t5tok, args) if args.valid else None
+    trainset = Dataset(args.train, err, t5tok, args)
+    learning = Learning(model, optim, criter, last_step, trainset, validset, err, t5tok.pad_token_id, args, device)
     
     toc = time.time()
     logging.info('Done ({:.2f} seconds)'.format(toc-tic))

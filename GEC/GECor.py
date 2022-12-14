@@ -8,6 +8,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import itertools
 
+#https://huggingface.co/docs/transformers/model_doc/t5#transformers.T5Model
+
 def load_or_create_checkpoint(fmodel, model, optimizer, device):
     files = sorted(glob.glob("{}.????????.pt".format(fmodel)))
     if len(files) == 0:
@@ -66,12 +68,6 @@ class CE2(torch.nn.Module):
         #return loss_err + self.beta * loss_cor
         (bs, lt, ts) = outerr.shape
         (_,  lc, cs) = outcor.shape
-        #logging.info('outerr.shape = {}'.format(outerr.shape)) #[bs, lt, ts]
-        #logging.info('outcor.shape = {}'.format(outcor.shape)) #[bs, lc, cs]
-        #logging.info('mskerr.shape = {}'.format(mskerr.shape)) #[bs, lt]
-        #logging.info('mskcor.shape = {}'.format(mskcor.shape)) #[bs, lc, 1]
-        #logging.info('referr.shape = {}'.format(referr.shape)) #[bs, lt]
-        #logging.info('refcor.shape = {}'.format(refcor.shape)) #[bs, lc, 1]
         outerr = outerr.reshape(bs*lt,-1) #[bs*lt,ts]
         outcor = outcor.reshape(bs*lc,-1) #[bs*lc,cs]
         mskerr = mskerr.reshape(bs*lt) #[bs*lt]
@@ -98,25 +94,30 @@ class GECor(nn.Module):
 
     def __init__(self, model, err, n_subtokens, merge='sum'):
         super(GECor, self).__init__() 
-        self.model = model #for model details: print(model.config)
+        self.model = model #for model details: print(model.config) 
+        self.merge = merge
         self.idx_PAD_err = err.idx_PAD
         self.n_err = len(err)
         self.n_cor = n_subtokens * self.model.config.vocab_size
-        self.merge = merge
         self.n_subtokens = n_subtokens
         self.emb_size = self.model.config.d_model
         self.linear_layer_err = nn.Linear(self.emb_size, self.n_err)
         self.linear_layer_cor = nn.Linear(self.emb_size, self.n_cor)
         
-    def forward(self, inputs, indexs):
+    def forward(self, inputs, indexs, l2=None):
         ### encoder layer ###
-        embeddings = self.model.get_input_embeddings()(inputs) #[bs, l, ed]
+        #l2 = torch.max(indexs[:,-1]) + 1
+        embeddings = self.model(inputs).last_hidden_state #[bs, l, ed]
+        bs, l, ed = embeddings.shape
         if torch.max(indexs) > embeddings.shape[1]-1:
             logging.error('Indexs bad formatted!')
             sys.exit()
         ### merge into words ###
         if self.merge in ['sum', 'avg', 'max']:
-            embeddings_merged = torch.zeros_like(embeddings, dtype=embeddings.dtype, device=embeddings.device)
+            if l2 is not None:
+                embeddings_merged = torch.zeros((bs,l2,ed), dtype=embeddings.dtype, device=embeddings.device)
+            else:
+                embeddings_merged = torch.zeros_like(embeddings, dtype=embeddings.dtype, device=embeddings.device)
             torch_scatter.segment_coo(embeddings, indexs, out=embeddings_merged, reduce=self.merge)
         elif self.merge in ['first','last']:
             embeddings_merged = embeddings #not finished!!!
@@ -124,8 +125,8 @@ class GECor(nn.Module):
             logging.error('Bad merge value: {}'.format(self.merge))
             sys.exit()
         ### out layers ###
-        out_err = self.linear_layer_err(embeddings_merged) #[bs, l, es]
-        out_cor = self.linear_layer_cor(embeddings_merged) #[bs, l, cs]        
+        out_err = self.linear_layer_err(embeddings_merged) #[bs, l2, es]
+        out_cor = self.linear_layer_cor(embeddings_merged) #[bs, l2, cs]        
         return out_err, out_cor
 
     def parameters(self):
