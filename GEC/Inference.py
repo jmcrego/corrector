@@ -7,63 +7,47 @@ import numpy as np
 import torch
 import time
 from mosestokenizer import MosesDetokenizer
-#from GECor import save_checkpoint
 from collections import defaultdict
-#from utils.Utils import SEPAR1, SEPAR2, KEEP
-
-minp_cor = 0.1
 
 class Inference():
 
-    def __init__(self, model, testset, tags, cors, token, lex, args, device):
+    def __init__(self, model, testset, tags, t5tok, args, device):
         self.detok = MosesDetokenizer('fr')
         super(Inference, self).__init__()
         softmax = torch.nn.Softmax(dim=-1)
         self.args = args
-        self.token = token
+        self.t5tok = t5tok
         self.tags = tags
-        self.cors = cors #either Vocabulary or None
-        self.lex = lex
         idx_PAD_tag = tags.idx_PAD
-        idx_PAD_cor = cors.idx_PAD if cors is not None else 2 #<pad> in FlaubertTok
+        idx_PAD_cor = t5tok.pad_token_id
         self.corrected_testset = [None] * len(testset) #final string to output of corrected sentences
-        dinputs = {}
         model.eval()
         with torch.no_grad():
-            for inputs, indexs, _, _, idxs, words in testset:
+            for inputs, indexs, _, _, idxs in testset:
                 logging.info(idxs)
-                (bs, l) = inputs.shape
+                (bs, l1) = inputs.shape
+                (bs, l2) = indexs.shape
                 #inputs [[ 0, 147, 3291, 49, 13578, 37, 246, 5067, 530, 61, 1, 2]] => [bs,l]
                 #indexs [[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 10, 11, 12]] => [bs,l]
                 #words  [['<s>', 'Un', 'sourire', 'se', 'dessine', 'sur', 'mes', 'lèvres', 'lorsque', 'je', 'revois','</s>']]
-                #for i in range(bs):
-                #    logging.debug('idx={}\n\t{}\n\t{}\n\t{}'.format(idxs[i],inputs[i].tolist(),indexs[i].tolist(),words[i]))
                 for n_iter in range(args.max_iter):
                     logging.debug('n_iter:{}'.format(n_iter))
                     inputs = inputs.to(device)
                     indexs = indexs.to(device)
-                    dinputs['input_ids'] = inputs
-                    outtag, outcor = model(dinputs, indexs) ### [bs, l, ts], [bs, l, ws] or [bs, l, nsubt*ws]
-                    #logging.info('outtag.shape = {}'.format(outtag.shape))
-                    #logging.info('outcor.shape = {}'.format(outcor.shape))
-                    #sorted_tags = outtag.argsort(dim=2, descending=True)[:,:,:args.Kt] #[bs, l, Kt]
-                    #sorted_cors = outcor.argsort(dim=2, descending=True)[:,:,:args.Kc] #[bs, l, Kc]
-
+                    outtag, outcor = model(inputs, indexs) ### [bs, l2, ts], [bs, l2, nsubt*ws]
                     ### TAGS ###
-                    outtag = softmax(outtag) #[bs, l, ts]
+                    outtag = softmax(outtag) #[bs, l2, ts]
                     sorted_tags_prob, sorted_tags = torch.sort(outtag, dim=-1, descending=True)
-                    #sorted_tags_prob = sorted_tags_prob[:,:,:args.Kt]
-                    #sorted_tags = sorted_tags[:,:,:args.Kt]
-
+                    sorted_tags_prob = sorted_tags_prob[:,:,:args.n_best]
+                    sorted_tags = sorted_tags[:,:,:args.n_best]
                     ### CORS ###
-                    if args.n_subtokens > 1:
-                        bs, l, nsubt_times_ws = outcor.shape
-                        outcor = outcor.reshape(bs,l,args.n_subtokens,-1) #[bs, l, n_subt, ws]
-                    outcor = softmax(outcor) #[bs, l, n_subt, ws]
+                    bs, l2, nsubt_times_ws = outcor.shape
+                    outcor = outcor.reshape(bs,l2,args.n_subtok,-1) #[bs, l2, n_subt, ws]                        
+                    outcor = softmax(outcor) #[bs, l2, n_subt, ws]
                     sorted_cors_prob, sorted_cors = torch.sort(outcor, dim=-1, descending=True)
-                    #sorted_cors_prob = sorted_cors_prob[:,:,:args.Kc]
-                    #sorted_cors = sorted_cors[:,:,:args.Kc]
-
+                    sorted_cors_prob = sorted_cors_prob[:,:,:args.n_best]
+                    sorted_cors = sorted_cors[:,:,:args.n_best]
+                    ### correct ###
                     continue_batch, continue_idx = self.correct_batch(idxs,words,sorted_tags,sorted_cors,sorted_tags_prob,sorted_cors_prob)
                     if len(continue_batch) == 0:
                         break
@@ -151,12 +135,6 @@ class Inference():
                 if i>=0:
                     return curr_cors[i], False
                 continue #try next tag
-        
-#            elif curr_tags[k] == '$POS':
-#                i = self.find_samepos(word,curr_cors,curr_tags_prob[k],curr_cors_prob)
-#                if i>=0:
-#                    return curr_cors[i], False
-#                continue #try next tag
         
             elif curr_tags[k] == '$PHON':
                 i = self.find_homophone(word,curr_cors,curr_tags_prob[k],curr_cors_prob)

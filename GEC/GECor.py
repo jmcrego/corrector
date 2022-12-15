@@ -103,7 +103,16 @@ class GECor(nn.Module):
         self.emb_size = self.model.config.d_model
         self.linear_layer_err = nn.Linear(self.emb_size, self.n_err)
         self.linear_layer_cor = nn.Linear(self.emb_size, self.n_cor)
-        
+
+    def freeze_enc(self):
+        self.model.requires_grad = False
+
+    def freeze_err(self):
+        self.linear_layer_err.requires_grad = False
+    
+    def freeze_cor(self):
+        self.linear_layer_cor.requires_grad = False
+
     def forward(self, inputs, indexs, l2=None):
         ### encoder layer ###
         #l2 = torch.max(indexs[:,-1]) + 1
@@ -130,6 +139,7 @@ class GECor(nn.Module):
         return out_err, out_cor
 
     def parameters(self):
-        return super().parameters()    
+        return filter(lambda p: p.requires_grad, super().parameters()) #to filter out freezed parameters
+        #return super().parameters()    
     
     

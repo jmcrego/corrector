@@ -40,6 +40,9 @@ if __name__ == '__main__':
     group_optim.add_argument('--batch_sz', type=int, default=4096, help='Batch size (4096)')
     group_optim.add_argument('--batch_tp', type=str, default="tokens", help='Batch type: tokens or sentences (tokens)')
     group_optim.add_argument('--accum_n', type=int, default=4, help='Accumulate n batchs before model update (4)')
+    group_optim.add_argument('--freeze_enc', action='store_true', help='Freeze encoder parameters')
+    group_optim.add_argument('--freeze_err', action='store_true', help='Freeze err linear layer parameters')
+    group_optim.add_argument('--freeze_cor', action='store_true', help='Freeze cor linear layer parameters')
 
     group_learning = parser.add_argument_group("Learning")
     group_learning.add_argument('--shard_sz', type=int, default=2000000, help='Examples in shard (2000000)')
@@ -71,7 +74,9 @@ if __name__ == '__main__':
     optim = optim.Adam(model.parameters(), lr=args.lr)
     last_step, model, optim = load_or_create_checkpoint(args.model, model, optim, device)
     criter = CE2(args.ls,args.beta).to(device)
-
+    model.freeze_enc()
+    sys.exit()
+    
     #############
     ### learn ###
     #############
